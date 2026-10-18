@@ -19,6 +19,7 @@ const char* client_id = "esp32-temperatura-cafe1";
 // Tópicos de la temperatura
 const char* topicoTemperaturaCent = "campo1/invernadero/cafe1/temperatura/centigrados";
 const char* topicoTemperaturaFahr = "campo1/invernadero/cafe1/temperatura/fahrenheit";
+const char* topicoTemperaturaCent = "campo1/parcela/maiz1/temperatura/centigrados";
 
 // Pin a la que esta conectado el sensor DHT11, GPIO4
 const unsigned int PIN_DHT = 4;
@@ -51,14 +52,14 @@ DHT dht(PIN_DHT, DHT11);
 char fecha[30];
 // Variable con el valor de la temperatura en grados centígrados
 char temperaturaCent[10];
-// Variable con el valor de la temperatura en grados Fahrenheith
-char temperaturaFahr[10];
+// Variable con el valor de la humedad
+char humedad[10];
 
 bool conectaRedWiFi();
 void reconnect();
 void obtenFecha(char* pFecha);
 void obtenTempCent(char* pTempCent);
-void obtenTempFahr(char* pTempFahr);
+void obtenHumedad(char* pHumedad);
 void publicaValores();
 
 void setup() {
@@ -147,8 +148,8 @@ void actualizaLectura() {
   obtenFecha(fecha);
   // Lee el valor de la temperatura en grados centígrados
   obtenTempCent(temperaturaCent);
-  // Lee el valor de la temperatura en grados Fahrenheith
-  obtenTempFahr(temperaturaFahr);
+  // Lee el valor de la humedad
+  obtenHumedad(humedad);
   // Publica a humedad y temperatura al servidor MQTT
   publicaValores();
 }
@@ -182,18 +183,18 @@ void obtenTempCent(char* pTempCent) {
 }
 
 /*
-* Esta funcion lee la temperatura en grados Fahrenheit usando
-* el sensor DHT11. Toma alrededor de 250 ms
+* Esta funcion lee la humedad usando el sensor DHT11.
+* Toma alrededor de 250 ms
 */
-void obtenTempFahr(char* pTempFahr) {
-  // Lee la temperatura en grados Fahrenheit
-  float tempFahr = dht.readTemperature(true);
+void obtenHumedad(char* pHumedad) {
+  // Lee la humedad
+  float humedad = dht.readHumidity();
   // Verifica que la lectura sea correcta
-  if (isnan(tempFahr)) {
+  if (isnan(humedad)) {
     Serial.println("Error al leer el sensor DHT11");
-    pTempFahr[0] = '\0';
+    pHumedad[0] = '\0';
   } else
-    dtostrf(tempFahr, 6, 2, pTempFahr);
+    dtostrf(humedad, 6, 2, pHumedad);
 }
 
 /*
@@ -205,13 +206,13 @@ void publicaValores() {
   // Crea mensaje con la temperatura en grados
   strcpy(mensaje, fecha);
   strcat(mensaje, " ");
-  strcat(mensaje, temperaturaCent);
+  strcat(mensaje, temperaturaCent); // Publica únicamente el valor
   // Publica la temperatura en grados centigrados
   client.publish(topicoTemperaturaCent, mensaje, true);
-  // Crea mensaje con la temperatura en grados Fahrenheigh
+  // Crea mensaje con la humedad
   strcpy(mensaje, fecha);
   strcat(mensaje, " ");
-  strcat(mensaje, temperaturaFahr);
-  // Publica la temperatura en grados Fahrenheigh
-  client.publish(topicoTemperaturaFahr, mensaje, true);
+  strcat(mensaje, humedad); // Publica únicamente el valor
+  // Publica la humedad
+  client.publish(topicoHumedad, mensaje, true);
 }
