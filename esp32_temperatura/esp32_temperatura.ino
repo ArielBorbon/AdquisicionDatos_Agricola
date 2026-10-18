@@ -17,9 +17,8 @@ const int mqtt_port = 1883;
 const char* client_id = "esp32-temperatura-cafe1";
 
 // Tópicos de la temperatura
-const char* topicoTemperaturaCent = "campo1/invernadero/cafe1/temperatura/centigrados";
-const char* topicoTemperaturaFahr = "campo1/invernadero/cafe1/temperatura/fahrenheit";
 const char* topicoTemperaturaCent = "campo1/parcela/maiz1/temperatura/centigrados";
+const char* topicoHumedad = "campo1/parcela/maiz1/humedad";
 
 // Pin a la que esta conectado el sensor DHT11, GPIO4
 const unsigned int PIN_DHT = 4;
