@@ -1,2 +1,2 @@
-urlServidor = "192.168.1.94" # Reemplácenlos por la ip del servidor con el broker
+urlServidor = "localhost" # Reemplácenlos por la ip del servidor con el broker
 puerto = 1883
