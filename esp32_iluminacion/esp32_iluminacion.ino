@@ -1,15 +1,15 @@
 // Librerías
 #include <NoDelay.h>
 #include <WiFi.h>
-#include <MQTT.h> // Requiere instalar la librería "MQTT" de Joel Gaehwiler (256dpi) en el Library Manager
+#include <MQTT.h> 
 #include "time.h"
 
 // ==========================================
 // CONFIGURACIÓN DE RED Y MQTT
 // ==========================================
-const char* ssid = "hola";
-const char* password = "sebas";
-const char* mqtt_server = "y ariel";
+const char* ssid = "INFINITUM78EF";
+const char* password = "u24xsk2CTy";
+const char* mqtt_server = "192.168.1.85";
 const int mqtt_port = 1883;
 const char* client_id = "esp32-luminosidad-invernadero1";
 
@@ -29,7 +29,7 @@ const char* topicoLuminosidad = "campo1/invernaderos/invernadero1/luminosidad";
 // ==========================================
 const unsigned int PIN_LDR = 34; // Pin analógico ADC1
 const unsigned int BAUD_RATE = 115200;
-const long PAUSA = 30000; // 30 segundos entre lecturas
+const long PAUSA = 2000; // REDUCIDO A 2 SEGUNDOS PARA EL CARRIL RÁPIDO
 
 // Configuración NTP (Network Time Protocol)
 const char* ntpServer = "pool.ntp.org";
@@ -38,8 +38,7 @@ const int daylightOffset_sec = 0;
 
 // Objetos de sistema
 WiFiClient espClient;
-// Se inicializa el cliente MQTT con un buffer de 256 bytes
-MQTTClient client(256);
+MQTTClient client(512); // Buffer ampliado a 512 bytes para mayor tolerancia
 struct tm timeinfo;
 noDelay pausa(PAUSA);
 
@@ -58,17 +57,13 @@ void publicaValores();
 void setup() {
   Serial.begin(BAUD_RATE);
   delay(100);
-  Serial.println("Iniciando Nodo LDR - Arquitectura por Capas (QoS 1)");
+  Serial.println("Iniciando Nodo LDR - Fast Track (QoS 1)");
   Serial.println();
   
-  // Resolución ADC a 12 bits (0-4095)
   analogReadResolution(12);
 
-  // Configuración del cliente MQTT
   client.begin(mqtt_server, mqtt_port, espClient);
-  
-  // Configura opciones: keepAlive (30s), cleanSession (false para persistencia), timeout (1000ms)
-  client.setOptions(30, false, 1000);
+  client.setOptions(30, false, 5000); // Timeout ampliado a 5s
 }
 
 void loop() {
@@ -77,7 +72,7 @@ void loop() {
   }
   
   if (client.connected()) {
-    client.loop(); // Mantiene viva la conexión
+    client.loop(); 
   }
   
   if (pausa.update()) {
@@ -85,9 +80,6 @@ void loop() {
   }
 }
 
-/*
-- Conecta el ESP32 a la red WiFi y sincroniza el reloj interno
-*/
 bool conectaRedWiFi() {
   if (WiFi.status() == WL_CONNECTED) return true;
   
@@ -107,37 +99,25 @@ bool conectaRedWiFi() {
   return true;
 }
 
-/*
-- Reconecta al Broker MQTT aplicando reglas de ACL y Persistencia
-*/
 void reconnect() {
   while (!client.connected()) {
     Serial.print("Intentando conexión MQTT con ACL... ");
     
-    // Conexión con credenciales. La persistencia (cleanSession = false) 
-    // ya se definió en setup() con client.setOptions()
     if (client.connect(client_id, mqtt_user, mqtt_password)) {
       Serial.println("Conectado al broker exitosamente.");
     } else {
-      // client.lastError() ayuda a depurar problemas de conexión
       Serial.print("Fallo de conexión. Reintentando en 5 segundos...");
       delay(5000);
     }
   }
 }
 
-/*
-- Lee los sensores y llama a la función de publicación
-*/
 void actualizaLectura() {
   obtenFecha(fecha);
   obtenLuminosidad(luminosidad);
   publicaValores();
 }
 
-/*
-- Obtiene la fecha y hora locales
-*/
 void obtenFecha(char* pFecha) {
   if (!getLocalTime(&timeinfo)) {
     Serial.println("Error: No se pudo sincronizar NTP");
@@ -147,9 +127,6 @@ void obtenFecha(char* pFecha) {
   }
 }
 
-/*
-- Lee el ADC y lo transforma a porcentaje
-*/
 void obtenLuminosidad(char* pLuminosidad) {
   int valorCrudo = analogRead(PIN_LDR);
   
@@ -157,22 +134,18 @@ void obtenLuminosidad(char* pLuminosidad) {
     Serial.println("Error al leer LDR");
     pLuminosidad[0] = '\0';
   } else {
+    // CORRECCIÓN: Se agregó el operador de multiplicación faltante (*)
     float porcentajeLuz = (valorCrudo / 4095.0) * 100.0;
     dtostrf(porcentajeLuz, 6, 2, pLuminosidad);
   }
 }
 
-/*
-- Publica en el tópico de acuerdo a la capa de percepción
-*/
 void publicaValores() {
   char mensaje[60];
   strcpy(mensaje, fecha);
   strcat(mensaje, " ");
   strcat(mensaje, luminosidad);
   
-  // Publicación estructurada: publish(topic, payload, retained, qos)
-  // retained = true, QoS = 1
   bool exito = client.publish(topicoLuminosidad, mensaje, true, 1);
   
   Serial.print("ACL/QoS -> Topico: ");

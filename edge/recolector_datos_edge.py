@@ -27,11 +27,11 @@ TOPICOS_SALIDA = {
     "lum_estado": "campo1/edge/invernaderos/invernadero1/luminosidad/estado"
 }
 
+# Se retira la luminosidad del buffer para no generar promedios retrasados
 buffers = {
     "campo1/parcelas/maiz1/temperatura/centigrados": [],
     "campo1/parcelas/maiz1/humedad/aire": [],
-    "campo1/parcelas/parcela1/humedad/suelo": [],
-    "campo1/invernaderos/invernadero1/luminosidad": []
+    "campo1/parcelas/parcela1/humedad/suelo": []
 }
 ventana_actual = None
 
@@ -64,6 +64,30 @@ def on_message(cliente, userdata, message):
     except ValueError as e:
         return
 
+    # =======================================================
+    # CARRIL RÁPIDO (FAST-TRACK) PARA LUMINOSIDAD (DEMO EN VIVO)
+    # =======================================================
+    if topico == "campo1/invernaderos/invernadero1/luminosidad":
+        # Evaluar el semáforo y publicar instantáneamente
+        if valor <= 20:
+            estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, encender iluminación artificial o revisar obstrucciones."
+        elif valor <= 50:
+            estado_lum = "Azul|Adecuado para plantas de sombra, pero insuficiente para maximizar el rendimiento de maíz/tomate.|Retirar mallas sombra si están desplegadas."
+        elif valor <= 85:
+            estado_lum = "Verde|Rango ideal. Tasa de asimilación fotosintética máxima sin generar estrés térmico.|Condiciones ideales, no se requiere acción."
+        else:
+            estado_lum = "Rojo|Radiación extrema. Alto riesgo de fotoinhibición y quemaduras en el tejido vegetal.|Precaución. Desplegar malla sombra al 30% o 50% inmediatamente."
+
+        cliente.publish(TOPICOS_SALIDA["lum_prom"], str(round(valor, 2)), qos=1)
+        cliente.publish(TOPICOS_SALIDA["lum_estado"], estado_lum, qos=1)
+        print(f"[FAST-TRACK] Luminosidad reenviada: {valor}% -> {estado_lum.split('|')[0]}")
+        
+        # Salimos de la función para que no pase a la lógica de bloques de 15 min
+        return
+
+    # =======================================================
+    # LÓGICA DE VENTANAS (15 MIN) PARA TEMPERATURA Y SUELO
+    # =======================================================
     ventana_mensaje = obtener_ventana_15_minutos(dt_mensaje)
     if ventana_actual is None:
         ventana_actual = ventana_mensaje
@@ -82,7 +106,6 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     prom_temp = calcular_promedio(buffers["campo1/parcelas/maiz1/temperatura/centigrados"])
     prom_hum_aire = calcular_promedio(buffers["campo1/parcelas/maiz1/humedad/aire"])
     prom_hum_suelo = calcular_promedio(buffers["campo1/parcelas/parcela1/humedad/suelo"])
-    prom_lum = calcular_promedio(buffers["campo1/invernaderos/invernadero1/luminosidad"])
     
     # 1. Metricas Ambientales (DPV, DPD)
     if prom_temp > 0 and prom_hum_aire > 0:
@@ -97,17 +120,7 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     gdd_ventana = gdh / (24 * 4) # cuatro ventanas de 15 min en una hora
     gdd_acumulado += gdd_ventana
     
-    # 3. Estado de Iluminacion (Semaforo)
-    if prom_lum <= 20:
-        estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, encender iluminación artificial o revisar obstrucciones."
-    elif prom_lum <= 50:
-        estado_lum = "Azul|Adecuado para plantas de sombra, pero insuficiente para maximizar el rendimiento de maíz/tomate.|Retirar mallas sombra si están desplegadas."
-    elif prom_lum <= 85:
-        estado_lum = "Verde|Rango ideal. Tasa de asimilación fotosintética máxima sin generar estrés térmico.|Condiciones ideales, no se requiere acción."
-    else:
-        estado_lum = "Rojo|Radiación extrema. Alto riesgo de fotoinhibición y quemaduras en el tejido vegetal.|Precaución. Desplegar malla sombra al 30% o 50% inmediatamente."
-
-    # 4. Estado de Saturacion Hidrica (Semaforo de Riego)
+    # 3. Estado de Saturacion Hidrica (Semaforo de Riego)
     if prom_hum_suelo >= 80:
         estado_suelo = "Azul|Suelo saturado y sin oxígeno.|Peligro de pudrición de raíces; no regar."
     elif prom_hum_suelo >= 50:
@@ -117,7 +130,7 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     else:
         estado_suelo = "Rojo|Condición crítica. La planta no tiene fuerza de succión.|Punto de Marchitez. Regar inmediatamente."
 
-    # 5. Tasa de Secado y Demanda Cruzada (Por hora)
+    # 4. Tasa de Secado y Demanda Cruzada (Por hora)
     tasa_secado = 0.0
     if ultima_hora_secado is None or (dt_actual - ultima_hora_secado).total_seconds() >= 3600:
         if ultimo_promedio_suelo is not None:
@@ -136,8 +149,6 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_suelo_prom"], str(round(prom_hum_suelo, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_suelo_estado"], estado_suelo, qos=1)
-    cliente.publish(TOPICOS_SALIDA["lum_prom"], str(round(prom_lum, 2)), qos=1)
-    cliente.publish(TOPICOS_SALIDA["lum_estado"], estado_lum, qos=1)
     
     for key in buffers:
         buffers[key].clear()
