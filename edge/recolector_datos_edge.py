@@ -19,9 +19,11 @@ TOPICOS_SALIDA = {
     "hum_aire_prom": "campo1/edge/parcelas/maiz1/humedad_aire/promedio",
     "dpv": "campo1/edge/parcelas/maiz1/dpv",
     "dpd": "campo1/edge/parcelas/maiz1/dpd",
+    "gdd": "campo1/edge/parcelas/maiz1/gdd", 
     "hum_suelo_prom": "campo1/edge/parcelas/parcela1/humedad_suelo/promedio",
+    "hum_suelo_estado": "campo1/edge/parcelas/parcela1/humedad_suelo/estado",
+    "tasa_secado": "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado", 
     "lum_prom": "campo1/edge/invernaderos/invernadero1/luminosidad/promedio",
-    # NUEVO TÓPICO PARA EL ESTADO (SEMÁFORO)
     "lum_estado": "campo1/edge/invernaderos/invernadero1/luminosidad/estado"
 }
 
@@ -32,6 +34,11 @@ buffers = {
     "campo1/invernaderos/invernadero1/luminosidad": []
 }
 ventana_actual = None
+
+# Variables para metricas acumulativas y comparativas
+gdd_acumulado = 0.0 # GDD de la temporada
+ultimo_promedio_suelo = None
+ultima_hora_secado = None
 
 def obtener_ventana_15_minutos(dt: datetime) -> datetime:
     minuto_redondeado = (dt.minute // 15) * 15
@@ -62,14 +69,14 @@ def on_message(cliente, userdata, message):
         ventana_actual = ventana_mensaje
 
     if ventana_mensaje > ventana_actual:
-        procesar_y_publicar_ventana(cliente, ventana_actual)
+        procesar_y_publicar_ventana(cliente, ventana_actual, dt_mensaje) 
         ventana_actual = ventana_mensaje
 
     if topico in buffers:
         buffers[topico].append(valor)
 
-def procesar_y_publicar_ventana(cliente, ventana):
-    global buffers
+def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
+    global buffers, gdd_acumulado, ultimo_promedio_suelo, ultima_hora_secado
     print(f"\n--- CIERRE DE VENTANA EDGE: {ventana.strftime('%H:%M')} ---")
     
     prom_temp = calcular_promedio(buffers["campo1/parcelas/maiz1/temperatura/centigrados"])
@@ -77,13 +84,20 @@ def procesar_y_publicar_ventana(cliente, ventana):
     prom_hum_suelo = calcular_promedio(buffers["campo1/parcelas/parcela1/humedad/suelo"])
     prom_lum = calcular_promedio(buffers["campo1/invernaderos/invernadero1/luminosidad"])
     
+    # 1. Metricas Ambientales (DPV, DPD)
     if prom_temp > 0 and prom_hum_aire > 0:
         dpv = temperatura_metricas.calcular_dpv(prom_temp, prom_hum_aire)
         dpd = temperatura_metricas.calcular_dpd(prom_temp, prom_hum_aire)
     else:
         dpv = dpd = 0.0
 
-    # EVALUACIÓN DEL ESTADO LUMÍNICO (SEMÁFORO)
+    # 2. Dias Grados de Cultivo (GDD) - Maiz (Tb = 10C)
+    gdh = prom_temp - 10.0
+    if gdh < 0: gdh = 0 # No hay crecimiento si Th < Tb
+    gdd_ventana = gdh / (24 * 4) # cuatro ventanas de 15 min en una hora
+    gdd_acumulado += gdd_ventana
+    
+    # 3. Estado de Iluminacion (Semaforo)
     if prom_lum <= 20:
         estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, encender iluminación artificial o revisar obstrucciones."
     elif prom_lum <= 50:
@@ -93,14 +107,36 @@ def procesar_y_publicar_ventana(cliente, ventana):
     else:
         estado_lum = "Rojo|Radiación extrema. Alto riesgo de fotoinhibición y quemaduras en el tejido vegetal.|Precaución. Desplegar malla sombra al 30% o 50% inmediatamente."
 
+    # 4. Estado de Saturacion Hidrica (Semaforo de Riego)
+    if prom_hum_suelo >= 80:
+        estado_suelo = "Azul|Suelo saturado y sin oxígeno.|Peligro de pudrición de raíces; no regar."
+    elif prom_hum_suelo >= 50:
+        estado_suelo = "Verde|Rango óptimo donde la planta absorbe agua sin esfuerzo.|Capacidad de Campo. Condiciones ideales."
+    elif prom_hum_suelo >= 30:
+        estado_suelo = "Amarillo|El suelo se está secando y el agua se retiene con más fuerza.|Estrés Leve. Monitorear para próximo riego."
+    else:
+        estado_suelo = "Rojo|Condición crítica. La planta no tiene fuerza de succión.|Punto de Marchitez. Regar inmediatamente."
+
+    # 5. Tasa de Secado y Demanda Cruzada (Por hora)
+    tasa_secado = 0.0
+    if ultima_hora_secado is None or (dt_actual - ultima_hora_secado).total_seconds() >= 3600:
+        if ultimo_promedio_suelo is not None:
+            # Tasa = (H_anterior - H_actual) / 1 hora
+            tasa_secado = ultimo_promedio_suelo - prom_hum_suelo
+            cliente.publish(TOPICOS_SALIDA["tasa_secado"], str(round(tasa_secado, 2)), qos=1)
+        
+        ultimo_promedio_suelo = prom_hum_suelo
+        ultima_hora_secado = dt_actual
+
+    # Publicaciones MQTT
     cliente.publish(TOPICOS_SALIDA["temp_prom"], str(round(prom_temp, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_aire_prom"], str(round(prom_hum_aire, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["dpv"], str(dpv), qos=1)
     cliente.publish(TOPICOS_SALIDA["dpd"], str(dpd), qos=1)
+    cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_suelo_prom"], str(round(prom_hum_suelo, 2)), qos=1)
+    cliente.publish(TOPICOS_SALIDA["hum_suelo_estado"], estado_suelo, qos=1)
     cliente.publish(TOPICOS_SALIDA["lum_prom"], str(round(prom_lum, 2)), qos=1)
-    
-    # PUBLICACIÓN DEL ESTADO (SEPARADO POR '|')
     cliente.publish(TOPICOS_SALIDA["lum_estado"], estado_lum, qos=1)
     
     for key in buffers:
