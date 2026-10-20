@@ -19,8 +19,8 @@ class DashboardAgricola:
     def __init__(self, root):
         self.root = root
         self.root.title("Dashboard de Monitoreo Agrícola IoT")
-        # Se aumentó la altura de la ventana a 700 para acomodar las alertas de texto largas
-        self.root.geometry("650x700")
+        # Ajustamos la altura para hacer espacio a las nuevas métricas
+        self.root.geometry("650x850")
         self.root.configure(padx=20, pady=20)
         
         style = ttk.Style()
@@ -29,18 +29,25 @@ class DashboardAgricola:
         style.configure("TLabelframe.Label", font=("Arial", 12, "bold"), foreground="#2c3e50")
         
         titulo = ttk.Label(self.root, text="Panel de Control - Áreas Agrícolas", font=("Arial", 16, "bold"))
-        titulo.pack(pady=(0, 20))
+        titulo.pack(pady=(0, 10))
         
+        # Variables de texto a actualizar
         self.var_temp = tk.StringVar(value="Esperando datos...")
         self.var_hum_aire = tk.StringVar(value="Esperando datos...")
         self.var_dpv = tk.StringVar(value="Esperando datos...")
         self.var_dpd = tk.StringVar(value="Esperando datos...")
+        self.var_gdd = tk.StringVar(value="Esperando datos...")
+        
         self.var_hum_suelo = tk.StringVar(value="Esperando datos...")
+        self.var_tasa_secado = tk.StringVar(value="Esperando datos...")
+        
         self.var_luminosidad = tk.StringVar(value="Esperando datos...")
         
-        # ZONA 1 (Maíz)
+        # ==========================================
+        # ZONA 1 (Maíz - Clima)
+        # ==========================================
         frame_maiz = ttk.LabelFrame(self.root, text=" Parcela: Maíz 1 (Clima) ", padding=(10, 10))
-        frame_maiz.pack(fill="x", pady=10)
+        frame_maiz.pack(fill="x", pady=5)
         
         ttk.Label(frame_maiz, text="Temp Promedio:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(frame_maiz, textvariable=self.var_temp, font=("Arial", 12, "bold"), foreground="#c0392b").grid(row=0, column=1, sticky="w", padx=5, pady=2)
@@ -51,35 +58,57 @@ class DashboardAgricola:
         ttk.Label(frame_maiz, text="DPV:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(frame_maiz, textvariable=self.var_dpv, font=("Arial", 12, "bold")).grid(row=2, column=1, sticky="w", padx=5, pady=2)
         
-        ttk.Label(frame_maiz, text="DPD:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(frame_maiz, text="DPD (Punto de Rocío):").grid(row=3, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(frame_maiz, textvariable=self.var_dpd, font=("Arial", 12, "bold")).grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-        # ZONA 2 (Suelo)
-        frame_suelo = ttk.LabelFrame(self.root, text=" Parcela: Parcela 1 (Suelo) ", padding=(10, 10))
-        frame_suelo.pack(fill="x", pady=10)
+        ttk.Label(frame_maiz, text="GDD Acumulado:").grid(row=4, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(frame_maiz, textvariable=self.var_gdd, font=("Arial", 12, "bold")).grid(row=4, column=1, sticky="w", padx=5, pady=2)
+
+        # ==========================================
+        # ZONA 2 (Parcela 1 - Suelo)
+        # ==========================================
+        frame_suelo = ttk.LabelFrame(self.root, text=" Parcela: Parcela 1 (Humedad de Suelo) ", padding=(10, 10))
+        frame_suelo.pack(fill="x", pady=5)
         
         ttk.Label(frame_suelo, text="Humedad Promedio:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(frame_suelo, textvariable=self.var_hum_suelo, font=("Arial", 12, "bold"), foreground="#8e44ad").grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-        # ZONA 3 (Iluminación con Semáforo)
+        ttk.Label(frame_suelo, text="Tasa de Secado:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(frame_suelo, textvariable=self.var_tasa_secado, font=("Arial", 12, "bold")).grid(row=1, column=1, sticky="w", padx=5, pady=2)
+
+        # Semáforo de Riego (Saturación Hídrica)
+        ttk.Label(frame_suelo, text="Saturación:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+        self.lbl_color_suelo = tk.Label(frame_suelo, text="Esperando...", width=15, font=("Arial", 10, "bold"), fg="white", bg="gray")
+        self.lbl_color_suelo.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+
+        ttk.Label(frame_suelo, text="Diagnóstico:").grid(row=3, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_diag_suelo = ttk.Label(frame_suelo, text="...", wraplength=450)
+        self.lbl_diag_suelo.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+
+        ttk.Label(frame_suelo, text="Acción:").grid(row=4, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_accion_suelo = ttk.Label(frame_suelo, text="...", wraplength=450)
+        self.lbl_accion_suelo.grid(row=4, column=1, sticky="w", padx=5, pady=2)
+
+        # ==========================================
+        # ZONA 3 (Invernadero 1 - Iluminación)
+        # ==========================================
         frame_inv = ttk.LabelFrame(self.root, text=" Invernadero: Invernadero 1 (Iluminación) ", padding=(10, 10))
-        frame_inv.pack(fill="x", pady=10)
+        frame_inv.pack(fill="x", pady=5)
         
         ttk.Label(frame_inv, text="Luminosidad:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(frame_inv, textvariable=self.var_luminosidad, font=("Arial", 12, "bold"), foreground="#f39c12").grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-        # Elementos visuales del semáforo
-        ttk.Label(frame_inv, text="Alerta:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        self.lbl_color = tk.Label(frame_inv, text="Esperando...", width=15, font=("Arial", 10, "bold"), fg="white", bg="gray")
-        self.lbl_color.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        ttk.Label(frame_inv, text="Estrés:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        self.lbl_color_lum = tk.Label(frame_inv, text="Esperando...", width=15, font=("Arial", 10, "bold"), fg="white", bg="gray")
+        self.lbl_color_lum.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
         ttk.Label(frame_inv, text="Fisiología:").grid(row=2, column=0, sticky="nw", padx=5, pady=2)
-        self.lbl_fisio = ttk.Label(frame_inv, text="...", wraplength=450)
-        self.lbl_fisio.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+        self.lbl_fisio_lum = ttk.Label(frame_inv, text="...", wraplength=450)
+        self.lbl_fisio_lum.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
         ttk.Label(frame_inv, text="Acción:").grid(row=3, column=0, sticky="nw", padx=5, pady=2)
-        self.lbl_accion = ttk.Label(frame_inv, text="...", wraplength=450)
-        self.lbl_accion.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+        self.lbl_accion_lum = ttk.Label(frame_inv, text="...", wraplength=450)
+        self.lbl_accion_lum.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
         self.configurar_mqtt()
 
@@ -99,6 +128,16 @@ class DashboardAgricola:
         topico = message.topic
         payload = message.payload.decode('utf-8')
         
+        # Diccionario maestro de colores HEX
+        colores_hex = {
+            "Gris": "#7f8c8d",
+            "Azul": "#2980b9",
+            "Verde": "#27ae60",
+            "Amarillo": "#f1c40f",
+            "Rojo": "#c0392b"
+        }
+
+        # 1. Tópicos de Temperatura / Clima
         if "maiz1/temperatura/promedio" in topico:
             self.var_temp.set(f"{payload} °C")
         elif "maiz1/humedad_aire/promedio" in topico:
@@ -107,29 +146,34 @@ class DashboardAgricola:
             self.var_dpv.set(f"{payload} kPa")
         elif "maiz1/dpd" in topico:
             self.var_dpd.set(f"{payload} °C")
+        elif "maiz1/gdd" in topico:
+            self.var_gdd.set(f"{payload} Días Grado")
+            
+        # 2. Tópicos de Humedad de Suelo
         elif "parcela1/humedad_suelo/promedio" in topico:
             self.var_hum_suelo.set(f"{payload} %")
+        elif "parcela1/humedad_suelo/tasa_secado" in topico:
+            self.var_tasa_secado.set(f"{payload} % / hora")
+        elif "parcela1/humedad_suelo/estado" in topico:
+            datos = payload.split('|')
+            if len(datos) == 3:
+                color, diag, accion = datos
+                bg_color = colores_hex.get(color, "gray")
+                self.lbl_color_suelo.config(text=color.upper(), bg=bg_color)
+                self.lbl_diag_suelo.config(text=diag)
+                self.lbl_accion_suelo.config(text=accion)
+
+        # 3. Tópicos de Iluminación
         elif "invernadero1/luminosidad/promedio" in topico:
             self.var_luminosidad.set(f"{payload} %")
         elif "invernadero1/luminosidad/estado" in topico:
-            # Separar el string usando el delimitador |
             datos = payload.split('|')
             if len(datos) == 3:
                 color, fisio, accion = datos
-                
-                # Asignar código HEX según el color que envió el Edge
-                colores_hex = {
-                    "Gris": "#7f8c8d",
-                    "Azul": "#2980b9",
-                    "Verde": "#27ae60",
-                    "Rojo": "#c0392b"
-                }
                 bg_color = colores_hex.get(color, "gray")
-                
-                # Actualizar la interfaz gráfica
-                self.lbl_color.config(text=color.upper(), bg=bg_color)
-                self.lbl_fisio.config(text=fisio)
-                self.lbl_accion.config(text=accion)
+                self.lbl_color_lum.config(text=color.upper(), bg=bg_color)
+                self.lbl_fisio_lum.config(text=fisio)
+                self.lbl_accion_lum.config(text=accion)
 
     def on_closing(self):
         self.cliente_mqtt.loop_stop()
