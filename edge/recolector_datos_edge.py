@@ -106,10 +106,10 @@ def on_message(cliente, userdata, message):
     # 2. Lógica del Sensor LDR (Fast-track y Guardado Histórico)
     if topico == "campo1/invernaderos/invernadero1/luminosidad":
         # -- Semáforo en vivo --
-        if valor <= 20: estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche."
-        elif valor <= 50: estado_lum = "Azul|Adecuado para sombra.|Retirar mallas sombra si están desplegadas."
-        elif valor <= 85: estado_lum = "Verde|Rango ideal.|Condiciones ideales, no se requiere acción."
-        else: estado_lum = "Rojo|Radiación extrema.|Precaución. Desplegar malla sombra al 30% inmediatamente."
+        if valor <= 20: estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, encender iluminación artificial o revisar obstrucciones."
+        elif valor <= 50: estado_lum = "Azul|Adecuado para plantas de sombra, pero insuficiente para maximizar el rendimiento de maíz/tomate.|Retirar mallas sombra si están desplegadas."
+        elif valor <= 85: estado_lum = "Verde|Rango ideal. Tasa de asimilación fotosintética máxima sin generar estrés térmico.|Condiciones ideales, no se requiere acción."
+        else: estado_lum = "Rojo|Radiación extrema. Alto riesgo de fotoinhibición y quemaduras en el tejido vegetal.|Precaución. Desplegar malla sombra al 30% o 50% inmediatamente."
 
         cliente.publish(TOPICOS_SALIDA["lum_prom"], str(round(valor, 2)), qos=1)
         cliente.publish(TOPICOS_SALIDA["lum_estado"], estado_lum, qos=1)
