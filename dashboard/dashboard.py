@@ -1,5 +1,7 @@
 import os
 import sys
+import csv
+from datetime import datetime
 
 raiz_proyecto = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if raiz_proyecto not in sys.path:
@@ -10,6 +12,10 @@ from tkinter import ttk
 import paho.mqtt.client as mqtt
 from edge.edge_meta_data import urlServidor, puerto
 
+# Importaciones para la gráfica histórica
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
 ID_CLIENTE = "dashboard-agricola-principal"
 MQTT_USER = "usuario_dashboard"
 MQTT_PASSWORD = "password_seguro_dash"
@@ -19,8 +25,8 @@ class DashboardAgricola:
     def __init__(self, root):
         self.root = root
         self.root.title("Dashboard de Monitoreo Agrícola IoT")
-        # Ajustamos la altura para hacer espacio a las nuevas métricas
-        self.root.geometry("650x850")
+        # Se amplía la ventana para acomodar la gráfica en la parte inferior
+        self.root.geometry("750x950")
         self.root.configure(padx=20, pady=20)
         
         style = ttk.Style()
@@ -31,18 +37,25 @@ class DashboardAgricola:
         titulo = ttk.Label(self.root, text="Panel de Control - Áreas Agrícolas", font=("Arial", 16, "bold"))
         titulo.pack(pady=(0, 10))
         
-        # Variables de texto a actualizar
+        # Variables de texto
         self.var_temp = tk.StringVar(value="Esperando datos...")
         self.var_hum_aire = tk.StringVar(value="Esperando datos...")
         self.var_dpv = tk.StringVar(value="Esperando datos...")
         self.var_dpd = tk.StringVar(value="Esperando datos...")
         self.var_gdd = tk.StringVar(value="Esperando datos...")
-        
         self.var_hum_suelo = tk.StringVar(value="Esperando datos...")
         self.var_tasa_secado = tk.StringVar(value="Esperando datos...")
-        
         self.var_luminosidad = tk.StringVar(value="Esperando datos...")
         
+        # Archivo histórico CSV
+        self.archivo_csv = "historico_luminosidad.csv"
+        self.inicializar_csv()
+
+        # Listas para almacenar datos en memoria para la gráfica (Máximo 20 puntos visibles)
+        self.x_data = []
+        self.y_data = []
+        self.max_puntos_grafica = 20
+
         # ==========================================
         # ZONA 1 (Maíz - Clima)
         # ==========================================
@@ -76,7 +89,6 @@ class DashboardAgricola:
         ttk.Label(frame_suelo, text="Tasa de Secado:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
         ttk.Label(frame_suelo, textvariable=self.var_tasa_secado, font=("Arial", 12, "bold")).grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-        # Semáforo de Riego (Saturación Hídrica)
         ttk.Label(frame_suelo, text="Saturación:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         self.lbl_color_suelo = tk.Label(frame_suelo, text="Esperando...", width=15, font=("Arial", 10, "bold"), fg="white", bg="gray")
         self.lbl_color_suelo.grid(row=2, column=1, sticky="w", padx=5, pady=2)
@@ -90,27 +102,77 @@ class DashboardAgricola:
         self.lbl_accion_suelo.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
         # ==========================================
-        # ZONA 3 (Invernadero 1 - Iluminación)
+        # ZONA 3 (Invernadero 1 - Iluminación y Gráfica)
         # ==========================================
         frame_inv = ttk.LabelFrame(self.root, text=" Invernadero: Invernadero 1 (Iluminación) ", padding=(10, 10))
-        frame_inv.pack(fill="x", pady=5)
+        frame_inv.pack(fill="both", expand=True, pady=5)
         
-        ttk.Label(frame_inv, text="Luminosidad:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
-        ttk.Label(frame_inv, textvariable=self.var_luminosidad, font=("Arial", 12, "bold"), foreground="#f39c12").grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        # Sub-frame superior para los indicadores
+        frame_inv_top = ttk.Frame(frame_inv)
+        frame_inv_top.pack(fill="x")
 
-        ttk.Label(frame_inv, text="Estrés:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
-        self.lbl_color_lum = tk.Label(frame_inv, text="Esperando...", width=15, font=("Arial", 10, "bold"), fg="white", bg="gray")
+        ttk.Label(frame_inv_top, text="Luminosidad:").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        ttk.Label(frame_inv_top, textvariable=self.var_luminosidad, font=("Arial", 12, "bold"), foreground="#f39c12").grid(row=0, column=1, sticky="w", padx=5, pady=2)
+
+        ttk.Label(frame_inv_top, text="Estrés:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        self.lbl_color_lum = tk.Label(frame_inv_top, text="Esperando...", width=15, font=("Arial", 10, "bold"), fg="white", bg="gray")
         self.lbl_color_lum.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-        ttk.Label(frame_inv, text="Fisiología:").grid(row=2, column=0, sticky="nw", padx=5, pady=2)
-        self.lbl_fisio_lum = ttk.Label(frame_inv, text="...", wraplength=450)
+        ttk.Label(frame_inv_top, text="Fisiología:").grid(row=2, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_fisio_lum = ttk.Label(frame_inv_top, text="...", wraplength=450)
         self.lbl_fisio_lum.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-        ttk.Label(frame_inv, text="Acción:").grid(row=3, column=0, sticky="nw", padx=5, pady=2)
-        self.lbl_accion_lum = ttk.Label(frame_inv, text="...", wraplength=450)
+        ttk.Label(frame_inv_top, text="Acción:").grid(row=3, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_accion_lum = ttk.Label(frame_inv_top, text="...", wraplength=450)
         self.lbl_accion_lum.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
+        # Gráfica Histórica incrustada
+        self.fig, self.ax = plt.subplots(figsize=(6, 2.5), dpi=100)
+        self.fig.patch.set_facecolor('#f0f0f0')
+        self.ax.set_title('Historial Reciente de Luminosidad (%)', fontsize=10)
+        self.ax.set_ylim(0, 105)
+        self.ax.tick_params(axis='x', rotation=45, labelsize=8)
+        self.linea_grafica, = self.ax.plot([], [], marker='o', color='#f39c12', linewidth=2)
+        self.fig.tight_layout()
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=frame_inv)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, pady=10)
+
         self.configurar_mqtt()
+
+    def inicializar_csv(self):
+        """Crea el archivo CSV con encabezados si no existe."""
+        if not os.path.exists(self.archivo_csv):
+            with open(self.archivo_csv, mode='w', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow(["Fecha", "Hora", "Luminosidad_Porcentaje"])
+
+    def registrar_y_graficar(self, valor):
+        """Guarda en CSV y actualiza la gráfica. Se ejecuta en el hilo principal."""
+        ahora = datetime.now()
+        fecha_str = ahora.strftime("%Y-%m-%d")
+        hora_str = ahora.strftime("%H:%M:%S")
+
+        # 1. Guardar histórico en CSV
+        with open(self.archivo_csv, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([fecha_str, hora_str, valor])
+
+        # 2. Actualizar datos en memoria para la gráfica
+        self.x_data.append(hora_str)
+        self.y_data.append(valor)
+
+        # Mantener solo los últimos N puntos para evitar saturar la gráfica visual
+        if len(self.x_data) > self.max_puntos_grafica:
+            self.x_data.pop(0)
+            self.y_data.pop(0)
+
+        # 3. Redibujar la gráfica
+        self.linea_grafica.set_data(range(len(self.x_data)), self.y_data)
+        self.ax.set_xticks(range(len(self.x_data)))
+        self.ax.set_xticklabels(self.x_data)
+        self.ax.set_xlim(0, max(1, len(self.x_data) - 1))
+        self.canvas.draw()
 
     def configurar_mqtt(self):
         self.cliente_mqtt = mqtt.Client(client_id=ID_CLIENTE, callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -128,16 +190,11 @@ class DashboardAgricola:
         topico = message.topic
         payload = message.payload.decode('utf-8')
         
-        # Diccionario maestro de colores HEX
         colores_hex = {
-            "Gris": "#7f8c8d",
-            "Azul": "#2980b9",
-            "Verde": "#27ae60",
-            "Amarillo": "#f1c40f",
-            "Rojo": "#c0392b"
+            "Gris": "#7f8c8d", "Azul": "#2980b9",
+            "Verde": "#27ae60", "Amarillo": "#f1c40f", "Rojo": "#c0392b"
         }
 
-        # 1. Tópicos de Temperatura / Clima
         if "maiz1/temperatura/promedio" in topico:
             self.var_temp.set(f"{payload} °C")
         elif "maiz1/humedad_aire/promedio" in topico:
@@ -149,7 +206,6 @@ class DashboardAgricola:
         elif "maiz1/gdd" in topico:
             self.var_gdd.set(f"{payload} Días Grado")
             
-        # 2. Tópicos de Humedad de Suelo
         elif "parcela1/humedad_suelo/promedio" in topico:
             self.var_hum_suelo.set(f"{payload} %")
         elif "parcela1/humedad_suelo/tasa_secado" in topico:
@@ -163,9 +219,15 @@ class DashboardAgricola:
                 self.lbl_diag_suelo.config(text=diag)
                 self.lbl_accion_suelo.config(text=accion)
 
-        # 3. Tópicos de Iluminación
         elif "invernadero1/luminosidad/promedio" in topico:
             self.var_luminosidad.set(f"{payload} %")
+            try:
+                valor_float = float(payload)
+                # Delegar la actualización gráfica y el guardado al hilo principal de Tkinter
+                self.root.after(0, self.registrar_y_graficar, valor_float)
+            except ValueError:
+                pass
+
         elif "invernadero1/luminosidad/estado" in topico:
             datos = payload.split('|')
             if len(datos) == 3:
@@ -178,6 +240,7 @@ class DashboardAgricola:
     def on_closing(self):
         self.cliente_mqtt.loop_stop()
         self.cliente_mqtt.disconnect()
+        self.root.quit()
         self.root.destroy()
 
 if __name__ == "__main__":
