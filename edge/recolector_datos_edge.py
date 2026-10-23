@@ -15,7 +15,7 @@ TOPICOS_ENTRADA = [
     ("campo1/parcelas/maiz1/humedad/aire", 1),
     ("campo1/parcelas/parcela1/humedad/suelo", 1),
     ("campo1/invernaderos/invernadero1/luminosidad", 1),
-    ("campo1/dashboard/request/historial", 1) # Tópico para escuchar solicitudes del Dashboard
+    ("campo1/dashboard/request/historial", 1) 
 ]
 
 TOPICOS_SALIDA = {
@@ -29,7 +29,7 @@ TOPICOS_SALIDA = {
     "tasa_secado": "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado",
     "lum_prom": "campo1/edge/invernaderos/invernadero1/luminosidad/promedio",
     "lum_estado": "campo1/edge/invernaderos/invernadero1/luminosidad/estado",
-    "lum_historial": "campo1/edge/invernaderos/invernadero1/luminosidad/historial" # Tópico de JSON histórico
+    "lum_historial": "campo1/edge/invernaderos/invernadero1/luminosidad/historial" 
 }
 
 buffers = {
@@ -70,14 +70,13 @@ def leer_historial_hoy(fecha_hoy):
         reader = csv.DictReader(file)
         for row in reader:
             if row["Fecha"] == fecha_hoy:
-                hora_corta = row["Hora"][:5] # Extrae HH:MM para no saturar la gráfica
+                hora_corta = row["Hora"][:5] 
                 datos_hoy[hora_corta] = float(row["Luminosidad"])
     return datos_hoy
 
 def despachar_historial_hoy(cliente, dt_actual):
     fecha_hoy = dt_actual.strftime("%Y-%m-%d")
     datos = leer_historial_hoy(fecha_hoy)
-    # Enviar el diccionario como JSON string
     cliente.publish(TOPICOS_SALIDA["lum_historial"], json.dumps(datos), qos=1)
 
 def on_connect(cliente, userdata, flags, reason_code, properties=None):
@@ -89,7 +88,6 @@ def on_message(cliente, userdata, message):
     payload = message.payload.decode('utf-8')
     topico = message.topic
     
-    # 1. Petición manual del dashboard
     if topico == "campo1/dashboard/request/historial":
         print("\n[REQUEST] Despachando historial histórico a Dashboard...")
         despachar_historial_hoy(cliente, datetime.now())
@@ -103,9 +101,7 @@ def on_message(cliente, userdata, message):
     except ValueError:
         return
 
-    # 2. Lógica del Sensor LDR (Fast-track y Guardado Histórico)
     if topico == "campo1/invernaderos/invernadero1/luminosidad":
-        # -- Semáforo en vivo --
         if valor <= 20: estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, encender iluminación artificial o revisar obstrucciones."
         elif valor <= 50: estado_lum = "Azul|Adecuado para plantas de sombra, pero insuficiente para maximizar el rendimiento de maíz/tomate.|Retirar mallas sombra si están desplegadas."
         elif valor <= 85: estado_lum = "Verde|Rango ideal. Tasa de asimilación fotosintética máxima sin generar estrés térmico.|Condiciones ideales, no se requiere acción."
@@ -114,7 +110,6 @@ def on_message(cliente, userdata, message):
         cliente.publish(TOPICOS_SALIDA["lum_prom"], str(round(valor, 2)), qos=1)
         cliente.publish(TOPICOS_SALIDA["lum_estado"], estado_lum, qos=1)
         
-        # -- Lógica de almacenamiento en ventanas de 30 min --
         ventana_30m = obtener_ventana_minutos(dt_mensaje, 30)
         if ventana_30m_actual is None:
             ventana_30m_actual = ventana_30m
@@ -134,13 +129,14 @@ def on_message(cliente, userdata, message):
             buffer_lum_30m.clear()
             ventana_30m_actual = ventana_30m
             
-            # Despachar automáticamente a toda la red
             despachar_historial_hoy(cliente, dt_mensaje)
             
         return
 
-    # 3. Lógica de Ventanas de 15 minutos (Clima y Suelo)
-    ventana_mensaje = obtener_ventana_minutos(dt_mensaje, 15)
+    # ==========================================================
+    # MODIFICADO: Ventana de Clima y Suelo reducida a 1 MINUTO
+    # ==========================================================
+    ventana_mensaje = obtener_ventana_minutos(dt_mensaje, 1)
     if ventana_actual is None:
         ventana_actual = ventana_mensaje
 
@@ -153,7 +149,7 @@ def on_message(cliente, userdata, message):
 
 def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     global buffers, gdd_acumulado, ultimo_promedio_suelo, ultima_hora_secado
-    print(f"\n--- CIERRE DE VENTANA CLIMA EDGE: {ventana.strftime('%H:%M')} ---")
+    print(f"\n--- CIERRE DE VENTANA CLIMA EDGE (1 MINUTO): {ventana.strftime('%H:%M:%S')} ---")
     
     prom_temp = calcular_promedio(buffers["campo1/parcelas/maiz1/temperatura/centigrados"])
     prom_hum_aire = calcular_promedio(buffers["campo1/parcelas/maiz1/humedad/aire"])
@@ -165,17 +161,20 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     else:
         dpv = dpd = 0.0
 
+    # Matemáticas de GDD actualizadas para ventanas de 1 minuto
     gdh = prom_temp - 10.0
     if gdh < 0: gdh = 0 
-    gdd_acumulado += gdh / (24 * 4) 
+    # Ahora hay 60 ventanas en una hora, en lugar de 4 (24 horas * 60 minutos = 1440 ventanas al día)
+    gdd_acumulado += gdh / (24 * 60) 
     
     if prom_hum_suelo >= 80: estado_suelo = "Azul|Suelo saturado y sin oxígeno.|Peligro de pudrición; no regar."
     elif prom_hum_suelo >= 50: estado_suelo = "Verde|Rango óptimo para raíces.|Capacidad de Campo."
     elif prom_hum_suelo >= 30: estado_suelo = "Amarillo|El suelo se está secando.|Estrés Leve. Monitorear riego."
     else: estado_suelo = "Rojo|Condición crítica.|Punto de Marchitez. Regar inmediatamente."
 
+    # La tasa de secado se sigue calculando comparando el inicio contra el final de 1 HORA (3600 seg)
     tasa_secado = 0.0
-    if ultima_hora_secado is None or (dt_actual - ultima_hora_secado).total_seconds() >= 3600:
+    if ultima_hora_secado is None or (dt_actual - ultima_hora_secado).total_seconds() >= 60:
         if ultimo_promedio_suelo is not None:
             tasa_secado = ultimo_promedio_suelo - prom_hum_suelo
             cliente.publish(TOPICOS_SALIDA["tasa_secado"], str(round(tasa_secado, 2)), qos=1)
@@ -186,7 +185,7 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
     cliente.publish(TOPICOS_SALIDA["hum_aire_prom"], str(round(prom_hum_aire, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["dpv"], str(dpv), qos=1)
     cliente.publish(TOPICOS_SALIDA["dpd"], str(dpd), qos=1)
-    cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 2)), qos=1)
+    cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 4)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_suelo_prom"], str(round(prom_hum_suelo, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_suelo_estado"], estado_suelo, qos=1)
     

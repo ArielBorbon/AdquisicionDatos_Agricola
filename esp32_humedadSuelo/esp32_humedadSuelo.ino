@@ -6,9 +6,9 @@
 // ==========================================
 // CONFIGURACIÓN DE RED Y MQTT
 // ==========================================
-const char* ssid = "hola";
-const char* password = "sebas";
-const char* mqtt_server = "IP_DEL_SERVIDOR"; // Actualiza esto con la IP de tu broker
+const char* ssid = "chip";
+const char* password = "sebaschip";
+const char* mqtt_server = "192.168.100.29";
 const int mqtt_port = 1883;
 const char* client_id = "esp32-humedad-parcela1";
 
