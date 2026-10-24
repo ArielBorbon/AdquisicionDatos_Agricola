@@ -1,0 +1,13 @@
+----------------------------------------------------
+# Después de abrir la terminal como administrador...
+----------------------------------------------------
+
+---------------------------
+# Ir a la ruta de mosquitto
+---------------------------
+cd "C:\Program Files\Mosquitto"
+
+-----------------------------------------------------------------------
+# Iniciar el servicio de Mosquitto cargando el archivo de configuración
+-----------------------------------------------------------------------
+.\mosquitto.exe -v -c mosquitto.conf
