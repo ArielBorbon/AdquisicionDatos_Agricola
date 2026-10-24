@@ -16,7 +16,6 @@ from edge.edge_meta_data import urlServidor, puerto
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-from collections import deque
 
 ID_CLIENTE = "dashboard-agricola-principal"
 MQTT_USER = "usuario_dashboard"
@@ -30,6 +29,9 @@ ALTO_BASE = 700
 # Márgenes FIJOS (fracción de la figura) para que todas las gráficas tengan
 # exactamente la misma caja de ejes y queden alineadas entre tarjetas.
 MARGENES_GRAFICA = dict(left=0.11, right=0.97, top=0.88, bottom=0.22)
+
+# Gráfica histórica de suelo: cuántos registros del CSV se ven a la vez
+PUNTOS_VISIBLES_SUELO = 12
 
 
 class DashboardAgricola:
@@ -77,6 +79,8 @@ class DashboardAgricola:
         self.var_gdd = tk.StringVar(value="Esperando datos...")
         self.var_hum_suelo = tk.StringVar(value="Esperando datos...")
         self.var_tasa_secado = tk.StringVar(value="Esperando datos...")
+        self.var_tiempo_marchitez = tk.StringVar(value="Esperando datos...")
+        self.var_resumen_suelo = tk.StringVar(value="Esperando histórico...")
         self.var_luminosidad = tk.StringVar(value="Esperando datos...")
 
         # Estructuras para el comportamiento responsivo
@@ -131,35 +135,48 @@ class DashboardAgricola:
         # ==========================================
         frame_suelo, info_suelo = self._crear_tarjeta(main_frame, 2, " Parcela: Parcela 1 (Humedad de Suelo) ", (8, 0))
 
-        self._fila(info_suelo, 0, "Nivel de Humedad en Vivo:", self.var_hum_suelo, "#8e44ad")
+        # ----- EN VIVO (promedio de ventana calculado por el Edge) -----
+        self._fila(info_suelo, 0, "Humedad promedio:", self.var_hum_suelo, "#8e44ad")
 
-        self._fila(info_suelo, 2, "Tasa de Secado:", self.var_tasa_secado, pady=(10, 2))
-        self._nota(info_suelo, 3, "* Representa la pérdida de "
-                                  "humedad en el suelo por cada hora, prediciendo cuándo será el próximo riego.")
+        ttk.Label(info_suelo, text="Estado:").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+        self.lbl_color_suelo = tk.Label(info_suelo, text="Esperando...", width=20, font=self.f_badge, fg="white", bg="gray")
+        self.lbl_color_suelo.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-        ttk.Label(info_suelo, text="Saturación:").grid(row=4, column=0, sticky="w", padx=5, pady=(10, 2))
-        self.lbl_color_suelo = tk.Label(info_suelo, text="Esperando...", width=15, font=self.f_badge, fg="white", bg="gray")
-        self.lbl_color_suelo.grid(row=4, column=1, sticky="w", padx=5, pady=(10, 2))
-        self._nota(info_suelo, 5, "* Se evalua cada 1 minuto. Representa la capacidad "
-                                  "del suelo para retener agua y el esfuerzo de la planta para absorberla.")
-
-        ttk.Label(info_suelo, text="Diagnóstico:").grid(row=6, column=0, sticky="nw", padx=5, pady=(10, 2))
-        self.lbl_diag_suelo = ttk.Label(info_suelo, text="...", wraplength=250)
-        self.lbl_diag_suelo.grid(row=6, column=1, sticky="w", padx=5, pady=(10, 2))
-        self._wrap_items.append((self.lbl_diag_suelo, info_suelo, "col1"))
-
-        ttk.Label(info_suelo, text="Acción:").grid(row=7, column=0, sticky="nw", padx=5, pady=2)
+        ttk.Label(info_suelo, text="Qué hacer:").grid(row=2, column=0, sticky="nw", padx=5, pady=2)
         self.lbl_accion_suelo = ttk.Label(info_suelo, text="...", wraplength=250)
-        self.lbl_accion_suelo.grid(row=7, column=1, sticky="w", padx=5, pady=2)
+        self.lbl_accion_suelo.grid(row=2, column=1, sticky="w", padx=5, pady=2)
         self._wrap_items.append((self.lbl_accion_suelo, info_suelo, "col1"))
 
-        self.fig_suelo, self.ax_suelo, self.canvas_suelo = self._crear_grafica(
-            frame_suelo, "Monitoreo en Tiempo Real - Humedad de Suelo (%)")
-        self.linea_suelo, = self.ax_suelo.plot([], [], marker='o', color='#2980b9', linewidth=2)
+        self._fila(info_suelo, 3, "Tasa de secado:", self.var_tasa_secado)
+        self._fila(info_suelo, 4, "Marchitez en:", self.var_tiempo_marchitez, "#c0392b")
 
-        # ---------- Buffer circular de suelo ----------
-        self.historial_suelo_tiempo = deque(maxlen=15)
-        self.historial_suelo_valores = deque(maxlen=15)
+        ttk.Label(info_suelo, text="Demanda cruzada:").grid(row=5, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_demanda = tk.Label(info_suelo, text="Esperando...", font=self.f_normal, fg="white", bg="gray",
+                                    justify="left", anchor="w", wraplength=250, padx=6, pady=2)
+        self.lbl_demanda.grid(row=5, column=1, sticky="w", padx=5, pady=2)
+        self._wrap_items.append((self.lbl_demanda, info_suelo, "col1"))
+
+        # ----- HISTÓRICO (viene del CSV del Edge) -----
+        ttk.Label(info_suelo, text="Hoy:").grid(row=6, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_resumen_suelo = ttk.Label(info_suelo, textvariable=self.var_resumen_suelo, wraplength=250)
+        self.lbl_resumen_suelo.grid(row=6, column=1, sticky="w", padx=5, pady=2)
+        self._wrap_items.append((self.lbl_resumen_suelo, info_suelo, "col1"))
+
+        self.fig_suelo, self.ax_suelo, self.canvas_suelo = self._crear_grafica(
+            frame_suelo, "Histórico de Humedad de Suelo (%)")
+        # Zonas del semáforo de fondo para leer la gráfica de un vistazo
+        self.ax_suelo.axhspan(0, 30, color="#c0392b", alpha=0.12)
+        self.ax_suelo.axhspan(30, 50, color="#f1c40f", alpha=0.18)
+        self.ax_suelo.axhspan(50, 80, color="#27ae60", alpha=0.12)
+        self.ax_suelo.axhspan(80, 105, color="#2980b9", alpha=0.12)
+        self.ax_suelo.set_ylim(0, 105)
+        for y, texto, color in [(91, "Asfixia", "#2980b9"), (77, "Capacidad de campo", "#27ae60"),
+                                (46, "Estrés leve", "#b7950b"), (6, "Marchitez", "#c0392b")]:
+            self.ax_suelo.text(0.99, y, texto, transform=self.ax_suelo.get_yaxis_transform(),
+                               ha="right", va="center", fontsize=7, color=color, alpha=0.9, zorder=1)
+        self.linea_suelo, = self.ax_suelo.plot([], [], marker='o', color='#2c3e50', linewidth=2, zorder=3)
+        self.ax_suelo.set_xlim(0, 1)
+        self.ax_suelo.set_xticks([])
 
         # ---------- Responsividad ----------
         self.root.bind("<Configure>", self._on_resize)
@@ -311,19 +328,13 @@ class DashboardAgricola:
     def _procesar_cola(self):
         """Se ejecuta en el hilo de Tk: vacía la cola y actualiza la UI de una sola vez."""
         hubo_cambio_texto = False
-        grafica_suelo = False
         try:
             while True:
                 topico, payload = self.cola_mensajes.get_nowait()
-                cambio_texto, cambio_suelo = self._manejar_mensaje(topico, payload)
-                hubo_cambio_texto |= cambio_texto
-                grafica_suelo |= cambio_suelo
+                hubo_cambio_texto |= self._manejar_mensaje(topico, payload)
         except queue.Empty:
             pass
 
-        # Un solo redibujado por lote de mensajes (en lugar de uno por mensaje)
-        if grafica_suelo:
-            self.renderizar_grafica_suelo_vivo()
         if hubo_cambio_texto:
             self._sincronizar_alturas()
 
@@ -349,22 +360,38 @@ class DashboardAgricola:
         except Exception as e:
             print("Error renderizando JSON de Edge:", e)
 
-    def renderizar_grafica_suelo_vivo(self):
-        n = len(self.historial_suelo_tiempo)
-        self.linea_suelo.set_data(range(n), list(self.historial_suelo_valores))
-        self.ax_suelo.set_xticks(range(n))
-        self.ax_suelo.set_xticklabels(list(self.historial_suelo_tiempo), rotation=45, ha="right")
-        self.ax_suelo.set_xlim(-0.2, max(1, n - 1) + 0.2)
-        self.canvas_suelo.draw_idle()
+    def renderizar_grafica_suelo_historica(self, payload):
+        """Recibe {"serie": {"HH:MM": %}, "resumen": {...}} calculado por el Edge a partir del CSV."""
+        try:
+            datos = json.loads(payload)
+            serie = datos.get("serie", {})
+            resumen = datos.get("resumen", {})
+
+            if serie:
+                x_data = list(serie.keys())
+                y_data = list(serie.values())
+                n = len(x_data)
+                self.linea_suelo.set_data(range(n), y_data)
+                self.ax_suelo.set_xticks(range(n))
+                self.ax_suelo.set_xticklabels(x_data, rotation=45, ha="right")
+                self.ax_suelo.set_xlim(max(0, n - PUNTOS_VISIBLES_SUELO) - 0.2, max(1, n - 1) + 0.2)
+                self.canvas_suelo.draw_idle()
+
+            if resumen:
+                r = resumen['riegos']
+                self.var_resumen_suelo.set(
+                    f"Promedio {resumen['promedio']}% · {resumen['pct_optimo']}% del tiempo en rango óptimo · "
+                    f"{r} {'riego' if r == 1 else 'riegos'}")
+        except Exception as e:
+            print("Error renderizando histórico de suelo:", e)
 
     # ==================================================
     # Manejo de mensajes (siempre en el hilo de Tk)
-    # Devuelve (cambió_texto_que_afecta_alturas, hay_que_redibujar_suelo)
+    # Devuelve True si cambió texto que puede afectar la altura de las tarjetas
     # ==================================================
     def _manejar_mensaje(self, topico, payload):
         colores_hex = {"Gris": "#7f8c8d", "Azul": "#2980b9", "Verde": "#27ae60", "Amarillo": "#f1c40f", "Rojo": "#c0392b"}
         cambio_texto = False
-        cambio_suelo = False
 
         # Modificación: Agregar "campo1/" a todas las cadenas de búsqueda
         if "campo1/edge/parcelas/maiz1/temperatura/promedio" in topico: self.var_temp.set(f"{payload} °C")
@@ -373,14 +400,35 @@ class DashboardAgricola:
         elif "campo1/edge/parcelas/maiz1/dpd" in topico: self.var_dpd.set(f"{payload} °C")
         elif "campo1/edge/parcelas/maiz1/gdd" in topico: self.var_gdd.set(f"{payload} Días Grado")
 
-        elif "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado" in topico: self.var_tasa_secado.set(f"{payload} % / hora")
+        elif "campo1/edge/parcelas/parcela1/humedad_suelo/promedio" in topico:
+            self.var_hum_suelo.set(f"{payload} %")
+        elif "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado" in topico:
+            try:
+                tasa = float(payload)
+                self.var_tasa_secado.set("Humedeciendo" if tasa < 0 else f"{tasa} % / hora")
+            except ValueError:
+                self.var_tasa_secado.set(payload)    # "Humedeciendo" / "Calculando..."
+        elif "campo1/edge/parcelas/parcela1/humedad_suelo/tiempo_marchitez" in topico:
+            self.var_tiempo_marchitez.set(payload)
+            cambio_texto = True
         elif "campo1/edge/parcelas/parcela1/humedad_suelo/estado" in topico:
             datos = payload.split('|')
             if len(datos) == 3:
-                self.lbl_color_suelo.config(text=datos[0].upper(), bg=colores_hex.get(datos[0], "gray"))
-                self.lbl_diag_suelo.config(text=datos[1])
-                self.lbl_accion_suelo.config(text=datos[2])
+                zonas_suelo = {"Azul": "ASFIXIA", "Verde": "CAPACIDAD DE CAMPO",
+                               "Amarillo": "ESTRÉS LEVE", "Rojo": "PUNTO DE MARCHITEZ"}
+                self.lbl_color_suelo.config(text=zonas_suelo.get(datos[0], datos[0].upper()),
+                                            bg=colores_hex.get(datos[0], "gray"))
+                self.lbl_accion_suelo.config(text=f"{datos[1]} {datos[2]}")
                 cambio_texto = True
+        elif "campo1/edge/parcelas/parcela1/humedad_suelo/demanda_cruzada" in topico:
+            datos = payload.split('|', 1)
+            if len(datos) == 2:
+                self.lbl_demanda.config(text=datos[1], bg=colores_hex.get(datos[0], "gray"),
+                                        fg="#2c3e50" if datos[0] == "Amarillo" else "white")
+                cambio_texto = True
+        elif "campo1/edge/parcelas/parcela1/humedad_suelo/historial" in topico:
+            self.renderizar_grafica_suelo_historica(payload)
+            cambio_texto = True
 
         elif "campo1/edge/invernaderos/invernadero1/luminosidad/promedio" in topico:
             self.var_luminosidad.set(f"{payload} %")
@@ -394,23 +442,7 @@ class DashboardAgricola:
         elif "campo1/edge/invernaderos/invernadero1/luminosidad/historial" in topico:
             self.renderizar_grafica_historica(payload)
 
-        # Esta regla ya estaba correcta (escucha directo al ESP32 sin pasar por el edge)
-        elif "campo1/parcelas/parcela1/humedad/suelo" in topico and "edge" not in topico:
-            try:
-                str_fecha = payload[:19]
-                str_valor = payload[19:].strip()
-                dt_mensaje = datetime.strptime(str_fecha, "%d/%m/%Y %H:%M:%S")
-                valor = float(str_valor)
-
-                self.var_hum_suelo.set(f"{valor} %")
-
-                self.historial_suelo_tiempo.append(dt_mensaje.strftime("%H:%M:%S"))
-                self.historial_suelo_valores.append(valor)
-                cambio_suelo = True
-            except ValueError:
-                pass
-
-        return cambio_texto, cambio_suelo
+        return cambio_texto
 
     def on_closing(self):
         self.cliente_mqtt.loop_stop()

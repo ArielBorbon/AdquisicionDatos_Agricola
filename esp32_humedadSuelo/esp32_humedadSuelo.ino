@@ -8,7 +8,7 @@
 // ==========================================
 const char* ssid = "chip";
 const char* password = "sebaschip";
-const char* mqtt_server = "192.168.100.29";
+const char* mqtt_server = "192.168.135.41";
 const int mqtt_port = 1883;
 const char* client_id = "esp32-humedad-parcela1";
 
