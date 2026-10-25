@@ -1,4 +1,4 @@
-import paho.mqtt.client as mqtt
+import paho.mqtt.client as mqtt # type: ignore
 from datetime import datetime
 from collections import deque
 import temperatura_metricas
@@ -398,8 +398,7 @@ def procesar_y_publicar_ventana(cliente, ventana, dt_actual):
         dpv = dpd = 0.0
 
     # GDD: cada ventana aporta (T - Tb) * (duración de la ventana / 1 día)
-    gdh = prom_temp - 10.0
-    if gdh < 0: gdh = 0 
+    gdh = temperatura_metricas.calcular_gdh(prom_temp)
     gdd_acumulado += gdh * VENTANA_CLIMA_SEG / 86400.0
 
     cliente.publish(TOPICOS_SALIDA["temp_prom"], str(round(prom_temp, 2)), qos=1)

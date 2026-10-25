@@ -1,5 +1,7 @@
 import math
 
+TEMP_BASE = 10
+
 """
 Calcula el Déficit de Presión de Vapor (DPV) en kilopascales (kPa).
     :param temperatura: Temperatura ambiente en °C
@@ -39,3 +41,7 @@ def calcular_dpd(temperatura: float, humedad: float) -> float:
     dpd = temperatura - punto_rocio
     
     return round(dpd, 2)
+
+def calcular_gdh(temperatura: float) -> float:
+    gdh = temperatura - TEMP_BASE
+    return 0 if gdh < 0 else gdh
