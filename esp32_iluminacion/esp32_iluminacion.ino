@@ -7,9 +7,9 @@
 // ==========================================
 // CONFIGURACIÓN DE RED Y MQTT
 // ==========================================
-const char* ssid = "INFINITUM41HI";
-const char* password = "dmP683Yu4S26";
-const char* mqtt_server = "192.168.1.85";
+const char* ssid = "NOVA_E480";
+const char* password = "under5296";
+const char* mqtt_server = "192.168.5.241";
 const int mqtt_port = 1883;
 const char* client_id = "esp32-luminosidad-invernadero1";
 

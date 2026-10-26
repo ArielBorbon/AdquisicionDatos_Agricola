@@ -4,9 +4,9 @@
 #include <MQTT.h> // Librería de Joel Gaehwiler (256dpi)
 #include "time.h"
 
-const char* ssid = "hola";
-const char* password = "sebas";
-const char* mqtt_server = "192.168.1.X"; // Poner la IP real de la PC con Mosquitto
+const char* ssid = "NOVA_E480";
+const char* password = "under5296";
+const char* mqtt_server = "192.168.5.241";
 const int mqtt_port = 1883;
 const char* client_id = "esp32-temperatura-maiz1";
 

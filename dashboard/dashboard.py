@@ -146,6 +146,11 @@ class DashboardAgricola:
         self.lbl_fisio_lum.grid(row=2, column=1, sticky="w", padx=5, pady=2)
         self._wrap_items.append((self.lbl_fisio_lum, info_inv, "col1"))
 
+        ttk.Label(info_inv, text="Acción:").grid(row=3, column=0, sticky="nw", padx=5, pady=2)
+        self.lbl_accion_lum = ttk.Label(info_inv, text="...", wraplength=300)
+        self.lbl_accion_lum.grid(row=3, column=1, sticky="w", padx=5, pady=2)
+        self._wrap_items.append((self.lbl_accion_lum, info_inv, "col1"))
+
         self.fig, self.ax, self.canvas = self._crear_grafica(
             frame_inv, "Tendencia Diaria de Luminosidad Promedio (Cada 30m)")
         self.linea_grafica, = self.ax.plot([], [], marker='o', color='#8e44ad', linewidth=2)
@@ -351,15 +356,30 @@ class DashboardAgricola:
     def renderizar_grafica_historica(self, payload):
         try:
             datos_json = json.loads(payload)
-            if not datos_json: return
+            if not datos_json: 
+                self.linea_grafica.set_data([], [])
+                self.ax.set_xticks([])
+                self.ax.set_xticklabels([])
+                self.canvas.draw_idle()
+                return
+                
             x_data = list(datos_json.keys())
             y_data = list(datos_json.values())
             self.linea_grafica.set_data(range(len(x_data)), y_data)
-            self.ax.set_xticks(range(len(x_data)))
-            self.ax.set_xticklabels(x_data, rotation=45, ha="right")
-            self.ax.set_xlim(max(0, len(x_data) - 10), max(1, len(x_data) - 1))
+            
+            posiciones_texto = []
+            etiquetas_texto = []
+            for i, hora in enumerate(x_data):
+                if hora.endswith(":00"):
+                    posiciones_texto.append(i)
+                    etiquetas_texto.append(hora)
+            
+            self.ax.set_xticks(posiciones_texto)
+            self.ax.set_xticklabels(etiquetas_texto, rotation=45, ha="right", fontsize=8)
+            self.ax.set_xlim(0, max(1, len(x_data) - 1))
             self.canvas.draw_idle()
-        except Exception as e: print("Error renderizando JSON:", e)
+        except Exception as e: 
+            print("Error renderizando JSON de luminosidad:", e)
 
     def renderizar_grafica_suelo_historica(self, payload):
         try:
@@ -504,6 +524,7 @@ class DashboardAgricola:
             if len(datos) == 3:
                 self.lbl_color_lum.config(text=datos[0].upper(), bg=colores_hex.get(datos[0], "gray"))
                 self.lbl_fisio_lum.config(text=datos[1])
+                self.lbl_accion_lum.config(text=datos[2])
                 cambio_texto = True
         elif "campo1/edge/invernaderos/invernadero1/luminosidad/historial" in topico:
             self.renderizar_grafica_historica(payload)

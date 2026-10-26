@@ -6,9 +6,9 @@
 // ==========================================
 // CONFIGURACIÓN DE RED Y MQTT
 // ==========================================
-const char* ssid = "chip";
-const char* password = "sebaschip";
-const char* mqtt_server = "192.168.135.41";
+const char* ssid = "NOVA_E480";
+const char* password = "under5296";
+const char* mqtt_server = "192.168.5.241";
 const int mqtt_port = 1883;
 const char* client_id = "esp32-humedad-parcela1";
 
