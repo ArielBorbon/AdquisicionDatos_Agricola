@@ -472,7 +472,10 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
 
 if __name__ == "__main__":
     inicializar_csv()
-    cliente = mqtt.Client(client_id=id_cliente, callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+    client_kwargs = {"client_id": id_cliente}
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        client_kwargs["callback_api_version"] = mqtt.CallbackAPIVersion.VERSION2
+    cliente = mqtt.Client(**client_kwargs)
     cliente.username_pw_set(username=mqtt_user, password=mqtt_password)
     cliente.on_connect = on_connect
     cliente.on_message = on_message
