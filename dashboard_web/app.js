@@ -15,6 +15,7 @@ const MQTT_CONFIG = {
   topics: {
     iluminacion: "campo1/edge/invernaderos/invernadero1/#",
     suelo: "campo1/edge/parcelas/parcela1/#",
+    maiz: "campo1/edge/parcelas/maiz1/#",
     requestHistorial: "campo1/dashboard/request/historial",
   },
 };
@@ -168,6 +169,80 @@ function inicializarGraficas() {
       scales: {
         y: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } },
         x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } },
+      },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  // 4. Dona de GDD (Maíz 1)
+  const ctxGdd = document.getElementById("gdd-doughnut-chart").getContext("2d");
+  window.gddDoughnutChart = new Chart(ctxGdd, {
+    type: "doughnut",
+    data: {
+      labels: ["GDD Acumulado", "GDD Faltante"],
+      datasets: [{
+        data: [0, 1600], // 1600 es el umbral de R6 (Madurez)
+        backgroundColor: [COLORES.Verde, COLORES.Vacio],
+        borderWidth: 0,
+        hoverOffset: 4,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "75%",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: (ctx) => ` ${ctx.label}: ${ctx.parsed}` }
+        },
+      },
+    },
+    plugins: [kpiCenterTextPlugin],
+  });
+  window.gddDoughnutChart.$kpiTexto = "--";
+  window.gddDoughnutChart.$kpiSubtexto = "GDD Acumulados";
+  window.gddCurrentVal = 0;
+  window.gddVistaFaltante = false;
+
+  // Interactividad: Clic para voltear el valor (GDD Actual vs Faltante)
+  document.getElementById("gdd-chart-container").addEventListener("click", () => {
+    window.gddVistaFaltante = !window.gddVistaFaltante;
+    if (window.gddVistaFaltante) {
+      const faltante = Math.max(0, 1600 - window.gddCurrentVal);
+      window.gddDoughnutChart.$kpiTexto = faltante.toFixed(1);
+      window.gddDoughnutChart.$kpiSubtexto = "GDD Faltantes (R6)";
+    } else {
+      window.gddDoughnutChart.$kpiTexto = window.gddCurrentVal.toFixed(1);
+      window.gddDoughnutChart.$kpiSubtexto = "GDD Acumulados";
+    }
+    window.gddDoughnutChart.update();
+  });
+
+  // 5. Tendencia Histórica GDD
+  const ctxGddTrend = document.getElementById("gdd-trend-chart").getContext("2d");
+  window.gddTrendChart = new Chart(ctxGddTrend, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [{
+        label: "GDD Acumulado",
+        data: [],
+        borderColor: "#16a34a", // Verde estilo banano
+        backgroundColor: "rgba(22, 163, 74, 0.0)",
+        borderWidth: 3,
+        pointRadius: 4,
+        pointBackgroundColor: "#16a34a",
+        fill: false,
+        tension: 0.1,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { min: 0, title: { display: true, text: 'GDD' } },
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
       },
       plugins: { legend: { display: false } },
     },
@@ -405,6 +480,54 @@ function actualizarHistorialSuelo(payload) {
 }
 
 // ==========================================================
+// LÓGICA DEL MÓDULO: CLIMA MAÍZ 1 (GDD)
+// ==========================================================
+function actualizarGddLive(payload) {
+  try {
+    const data = JSON.parse(payload);
+    const gdd = data.gdd_acumulado;
+    const etapa = data.etapa_crecimiento;
+
+    // Actualizar Textos
+    document.getElementById("gdd-etapa-nombre").textContent = etapa.nombre;
+    document.getElementById("gdd-etapa-desc").textContent = etapa.descripcion;
+
+    // Actualizar Gráfica Circular
+    const faltante = Math.max(0, 1600 - gdd);
+    window.gddCurrentVal = gdd;
+    
+    window.gddDoughnutChart.data.datasets[0].data = [gdd, faltante];
+    
+    // Si no está en vista invertida, actualizar el texto central
+    if (!window.gddVistaFaltante) {
+      window.gddDoughnutChart.$kpiTexto = gdd.toFixed(1);
+    } else {
+      window.gddDoughnutChart.$kpiTexto = faltante.toFixed(1);
+    }
+    
+    window.gddDoughnutChart.update();
+  } catch (err) {
+    console.error("Error parseando JSON de GDD:", err);
+  }
+}
+
+function actualizarHistorialGdd(payload) {
+  try {
+    const serie = JSON.parse(payload);
+    // serie es un array: [{"fecha": "2026-10-01", "gdd_acumulado": 15}, ...]
+    
+    const fechas = serie.map(item => item.fecha);
+    const valores = serie.map(item => item.gdd_acumulado);
+
+    window.gddTrendChart.data.labels = fechas;
+    window.gddTrendChart.data.datasets[0].data = valores;
+    window.gddTrendChart.update();
+  } catch (err) {
+    console.error("Error parseando Historial de GDD:", err);
+  }
+}
+
+// ==========================================================
 // ENRUTADOR MODULAR DE TÓPICOS MQTT
 // ==========================================================
 const MODULE_HANDLERS = [
@@ -427,6 +550,13 @@ const MODULE_HANDLERS = [
       else if (topic.endsWith("/historial")) actualizarHistorialSuelo(payload);
     },
   },
+  {
+    prefix: "campo1/edge/parcelas/maiz1/gdd",
+    handle(topic, payload) {
+      if (topic === "campo1/edge/parcelas/maiz1/gdd") actualizarGddLive(payload);
+      else if (topic.endsWith("/historial_diario")) actualizarHistorialGdd(payload);
+    },
+  }
 ];
 
 // ==========================================================
@@ -444,7 +574,7 @@ function conectarMQTT() {
   client.on("connect", () => {
     setStatus("Conectado (WS :15675)", "status-connected");
     // Suscripción a Iluminación y Suelo
-    client.subscribe([MQTT_CONFIG.topics.iluminacion, MQTT_CONFIG.topics.suelo], { qos: 1 }, (err) => {
+    client.subscribe([MQTT_CONFIG.topics.iluminacion, MQTT_CONFIG.topics.suelo, MQTT_CONFIG.topics.maiz], { qos: 1 }, (err) => {
       if (!err) {
         client.publish(MQTT_CONFIG.topics.requestHistorial, "solicitud", { qos: 1 });
       }

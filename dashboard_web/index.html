@@ -108,17 +108,43 @@
     <!-- =======================================================
          MÓDULO 2 (RESERVADO): CLIMA (MAÍZ 1)
          ======================================================= -->
-    <section id="modulo-clima" class="card card-placeholder">
+    <!-- =======================================================
+         MÓDULO 2 (ACTIVO): CLIMA (MAÍZ 1) - GDD
+         ======================================================= -->
+    <section id="modulo-clima" class="card card-active">
       <div class="card-header">
         <div>
-          <span class="module-tag muted">Parcela: Maíz 1</span>
-          <h2>Clima (Temperatura / DPV / GDD)</h2>
+          <span class="module-tag">Parcela: Maíz 1</span>
+          <h2>Grados Día de Desarrollo (GDD)</h2>
         </div>
-        <span class="state-badge state-placeholder">ESPACIO RESERVADO</span>
+        <span id="gdd-badge" class="state-badge state-verde">ACTIVO</span>
       </div>
-      <div class="placeholder-body">
-        <p>Módulo preparado para integración del equipo de <strong>Clima</strong>.</p>
-        <code>campo1/edge/parcelas/maiz1/#</code>
+
+      <!-- KPI: Gráfica Circular de GDD -->
+      <div class="kpi-section">
+        <div class="section-title-row">
+          <h3>Progreso de Madurez del Cultivo</h3>
+          <span class="chip" title="Clic en la gráfica para cambiar vista">Interactivo 🖱️</span>
+        </div>
+
+        <div class="doughnut-wrapper" style="cursor: pointer;" id="gdd-chart-container" title="Clic para alternar entre GDD actual y restante">
+          <canvas id="gdd-doughnut-chart"></canvas>
+        </div>
+
+        <div class="diagnostic-box" style="margin-top: 10px;">
+          <p><strong>Etapa Actual:</strong> <span id="gdd-etapa-nombre">Esperando datos...</span></p>
+          <p><strong>Descripción:</strong> <span id="gdd-etapa-desc">--</span></p>
+        </div>
+      </div>
+
+      <!-- Tendencia histórica de GDD -->
+      <div class="trend-section">
+        <div class="section-title-row">
+          <h3>Acumulación Histórica de GDD</h3>
+        </div>
+        <div class="trend-wrapper">
+          <canvas id="gdd-trend-chart"></canvas>
+        </div>
       </div>
     </section>
 
