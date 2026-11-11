@@ -5,7 +5,7 @@ const MQTT_CONFIG = {
   url: "ws://localhost:15675/ws",
   options: {
     clientId: "web-dashboard-" + Math.random().toString(16).slice(2, 10),
-    protocolVersion: 4, // MQTT 3.1.1 (compatible con RabbitMQ 3.x y 4.x)
+    protocolVersion: 4, // MQTT 3.1.1
     clean: true,
     reconnectPeriod: 3000,
     connectTimeout: 10000,
@@ -14,10 +14,8 @@ const MQTT_CONFIG = {
   },
   topics: {
     iluminacion: "campo1/edge/invernaderos/invernadero1/#",
+    suelo: "campo1/edge/parcelas/parcela1/#",
     requestHistorial: "campo1/dashboard/request/historial",
-    // Espacios listos para que tus compañeros activen sus suscripciones:
-    // clima: "campo1/edge/parcelas/maiz1/#",
-    // suelo: "campo1/edge/parcelas/parcela1/#",
   },
 };
 
@@ -26,6 +24,7 @@ const COLORES = {
   Azul: "#2563eb",
   Verde: "#16a34a",
   Rojo: "#dc2626",
+  Amarillo: "#eab308",
   Vacio: "#e2e8f0",
 };
 
@@ -48,13 +47,11 @@ const kpiCenterTextPlugin = {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
-    // Porcentaje principal escalado al diámetro interno de la dona
     const mainFontSize = Math.max(20, Math.round(innerRadius * 0.42));
     ctx.font = `800 ${mainFontSize}px "Segoe UI", system-ui, sans-serif`;
     ctx.fillStyle = "#0f172a";
     ctx.fillText(kpiTexto, x, y - mainFontSize * 0.16);
 
-    // Subtítulo debajo del porcentaje
     const subFontSize = Math.max(11, Math.round(innerRadius * 0.16));
     ctx.font = `600 ${subFontSize}px "Segoe UI", system-ui, sans-serif`;
     ctx.fillStyle = "#64748b";
@@ -69,8 +66,10 @@ const kpiCenterTextPlugin = {
 // ==========================================================
 let kpiDoughnutChart = null;
 let lumTrendChart = null;
+let sueloTrendChart = null;
 
 function inicializarGraficas() {
+  // 1. Dona de Iluminación
   const ctxDona = document.getElementById("kpi-doughnut-chart").getContext("2d");
   kpiDoughnutChart = new Chart(ctxDona, {
     type: "doughnut",
@@ -93,11 +92,7 @@ function inicializarGraficas() {
       plugins: {
         legend: {
           position: "bottom",
-          labels: {
-            usePointStyle: true,
-            padding: 14,
-            font: { size: 12 },
-          },
+          labels: { usePointStyle: true, padding: 14, font: { size: 12 } },
         },
         tooltip: {
           callbacks: {
@@ -105,7 +100,7 @@ function inicializarGraficas() {
               const label = context.label || "";
               const val = context.parsed;
               return context.chart.$sinDatos
-                ? " Esperando ventanas con luz diurna (Azul/Verde/Rojo)"
+                ? " Esperando ventanas con luz diurna"
                 : ` ${label}: ${val}%`;
             },
           },
@@ -118,6 +113,7 @@ function inicializarGraficas() {
   kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
   kpiDoughnutChart.$sinDatos = true;
 
+  // 2. Tendencia de Iluminación (LDR)
   const ctxTrend = document.getElementById("lum-trend-chart").getContext("2d");
   lumTrendChart = new Chart(ctxTrend, {
     type: "line",
@@ -143,9 +139,37 @@ function inicializarGraficas() {
         y: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } },
         x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } },
       },
-      plugins: {
-        legend: { display: false },
+      plugins: { legend: { display: false } },
+    },
+  });
+
+  // 3. Tendencia de Curva de Secado (Humedad Suelo)
+  const ctxSueloTrend = document.getElementById("suelo-trend-chart").getContext("2d");
+  sueloTrendChart = new Chart(ctxSueloTrend, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Humedad Suelo (%)",
+          data: [],
+          borderColor: "#2563eb",
+          backgroundColor: "rgba(37, 99, 235, 0.12)",
+          borderWidth: 2,
+          pointRadius: 3,
+          fill: true,
+          tension: 0.25,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } },
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } },
       },
+      plugins: { legend: { display: false } },
     },
   });
 }
@@ -208,11 +232,9 @@ function actualizarEstadoLuminosidad(payload) {
 function actualizarHistorialYKpi(payload) {
   try {
     const data = JSON.parse(payload);
-    // Soporta tanto el nuevo formato { fecha, serie, kpi } como el formato plano legacy
     const serie = data.serie && typeof data.serie === "object" ? data.serie : data;
     const kpi = data.kpi || calcularKpiFallback(serie);
 
-    // 1. Actualizar chip de fecha y gráfica de tendencia 30m
     if (data.fecha) {
       document.getElementById("kpi-fecha").textContent = data.fecha;
     }
@@ -222,7 +244,6 @@ function actualizarHistorialYKpi(payload) {
     lumTrendChart.data.datasets[0].data = valores;
     lumTrendChart.update();
 
-    // 2. Actualizar KPI en la Dona
     const conteo = kpi.conteo_estados || { Gris: 0, Azul: 0, Verde: 0, Rojo: 0 };
     const prop = kpi.proporciones_diurnas_pct || { Azul: 0, Verde: 0, Rojo: 0 };
     const diurnas = kpi.ventanas_diurnas ?? (conteo.Azul + conteo.Verde + conteo.Rojo);
@@ -239,17 +260,9 @@ function actualizarHistorialYKpi(payload) {
       kpiDoughnutChart.$sinDatos = false;
       kpiDoughnutChart.$kpiTexto = `${eficiencia.toFixed(1)}%`;
       kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
-      kpiDoughnutChart.data.labels = [
-        "Azul (Luz baja)",
-        "Verde (Óptimo)",
-        "Rojo (Extrema)",
-      ];
+      kpiDoughnutChart.data.labels = ["Azul (Luz baja)", "Verde (Óptimo)", "Rojo (Extrema)"];
       kpiDoughnutChart.data.datasets[0].data = [prop.Azul, prop.Verde, prop.Rojo];
-      kpiDoughnutChart.data.datasets[0].backgroundColor = [
-        COLORES.Azul,
-        COLORES.Verde,
-        COLORES.Rojo,
-      ];
+      kpiDoughnutChart.data.datasets[0].backgroundColor = [COLORES.Azul, COLORES.Verde, COLORES.Rojo];
     } else {
       kpiDoughnutChart.$sinDatos = true;
       kpiDoughnutChart.$kpiTexto = "0.0%";
@@ -265,6 +278,133 @@ function actualizarHistorialYKpi(payload) {
 }
 
 // ==========================================================
+// LÓGICA DEL MÓDULO: PARCELA 1 (HUMEDAD DE SUELO & TASA DE SECADO)
+// ==========================================================
+function clasificarSueloJS(valor) {
+  if (valor >= 80) return "Azul";
+  if (valor >= 50) return "Verde";
+  if (valor >= 30) return "Amarillo";
+  return "Rojo";
+}
+
+function actualizarSueloLive(payload) {
+  const valor = Number.parseFloat(payload);
+  if (Number.isNaN(valor)) return;
+
+  const clamped = Math.max(0, Math.min(100, valor));
+  const colorKey = clasificarSueloJS(clamped);
+
+  document.getElementById("suelo-live-value").textContent = `${clamped.toFixed(1)} %`;
+  const bar = document.getElementById("suelo-progress-bar");
+  bar.style.width = `${clamped}%`;
+  bar.style.backgroundColor = COLORES[colorKey];
+}
+
+function actualizarEstadoSuelo(payload) {
+  const partes = payload.split("|");
+  if (partes.length < 3) return;
+
+  const [color, fisiologia, accion] = partes;
+  const badge = document.getElementById("suelo-badge");
+  badge.textContent = color.toUpperCase();
+  badge.className = `state-badge state-${color.toLowerCase()}`;
+
+  document.getElementById("suelo-fisio").textContent = fisiologia;
+  document.getElementById("suelo-accion").textContent = accion;
+}
+
+function actualizarTasaSecado(payload) {
+  const tasa = Number.parseFloat(payload);
+  const elValue = document.getElementById("tasa-secado-value");
+  const elSub = document.getElementById("tasa-secado-sub");
+  const elBadge = document.getElementById("tasa-secado-badge");
+
+  if (Number.isNaN(tasa)) {
+    elValue.textContent = "--";
+    elSub.textContent = "Calculando tendencia...";
+    if (elBadge) {
+      elBadge.textContent = "CALCULANDO";
+      elBadge.className = "state-badge state-gris";
+    }
+    return;
+  }
+
+  elValue.textContent = (tasa > 0 ? "+" : "") + tasa.toFixed(2);
+
+  if (tasa > 1.5) {
+    // Secado Rápido -> Semáforo ROJO
+    elSub.textContent = "Secado acelerado (Riesgo hídrico)";
+    elSub.style.color = "#dc2626";
+    if (elBadge) {
+      elBadge.textContent = "SECADO RÁPIDO";
+      elBadge.className = "state-badge state-rojo";
+    }
+  } else if (tasa > 0.3) {
+    // Secado Moderado -> Semáforo AMARILLO
+    elSub.textContent = "Pérdida hídrica constante";
+    elSub.style.color = "#dfaa18ff";
+    if (elBadge) {
+      elBadge.textContent = "SECADO NORMAL";
+      elBadge.className = "state-badge state-amarillo";
+    }
+  } else if (tasa >= -0.3 && tasa <= 0.3) {
+    // Estable -> Semáforo VERDE
+    elSub.textContent = "Humedad estable en raíz";
+    elSub.style.color = "#166534";
+    if (elBadge) {
+      elBadge.textContent = "ESTABLE";
+      elBadge.className = "state-badge state-verde";
+    }
+  } else {
+    // Ganancia de Agua (Riego / Lluvia) -> Semáforo AZUL
+    elSub.textContent = "Absorción de humedad (Riego/Lluvia)";
+    elSub.style.color = "#2563eb";
+    if (elBadge) {
+      elBadge.textContent = "RECUPERACIÓN";
+      elBadge.className = "state-badge state-azul";
+    }
+  }
+}
+
+function actualizarTiempoMarchitez(payload) {
+  document.getElementById("tiempo-marchitez-value").textContent = payload;
+  document.getElementById("suelo-marchitez-chip").textContent = `ETA: ${payload}`;
+}
+
+function actualizarDemandaCruzada(payload) {
+  const partes = payload.split("|");
+  if (partes.length < 2) return;
+  const [color, mensaje] = partes;
+
+  const box = document.getElementById("demanda-cruzada-box");
+  box.className = `cross-demand-box state-${color.toLowerCase()}-light`;
+  document.getElementById("demanda-cruzada-texto").textContent = mensaje;
+}
+
+function actualizarHistorialSuelo(payload) {
+  try {
+    const data = JSON.parse(payload);
+    const serie = data.serie || {};
+    const resumen = data.resumen || {};
+
+    const horas = Object.keys(serie);
+    const valores = Object.values(serie);
+
+    if (sueloTrendChart) {
+      sueloTrendChart.data.labels = horas;
+      sueloTrendChart.data.datasets[0].data = valores;
+      sueloTrendChart.update();
+    }
+
+    if (resumen.promedio !== undefined) {
+      document.getElementById("suelo-hist-resumen").textContent = `${resumen.promedio}% prom (${resumen.riegos} riegos)`;
+    }
+  } catch (err) {
+    console.error("Error procesando historial de suelo:", err);
+  }
+}
+
+// ==========================================================
 // ENRUTADOR MODULAR DE TÓPICOS MQTT
 // ==========================================================
 const MODULE_HANDLERS = [
@@ -276,9 +416,17 @@ const MODULE_HANDLERS = [
       else if (topic.endsWith("/historial")) actualizarHistorialYKpi(payload);
     },
   },
-  // Tus compañeros pueden registrar aquí sus módulos sin tocar Iluminación:
-  // { prefix: "campo1/edge/parcelas/maiz1/", handle(topic, payload) { ... } },
-  // { prefix: "campo1/edge/parcelas/parcela1/", handle(topic, payload) { ... } },
+  {
+    prefix: "campo1/edge/parcelas/parcela1/humedad_suelo/",
+    handle(topic, payload) {
+      if (topic.endsWith("/promedio")) actualizarSueloLive(payload);
+      else if (topic.endsWith("/estado")) actualizarEstadoSuelo(payload);
+      else if (topic.endsWith("/tasa_secado")) actualizarTasaSecado(payload);
+      else if (topic.endsWith("/tiempo_marchitez")) actualizarTiempoMarchitez(payload);
+      else if (topic.endsWith("/demanda_cruzada")) actualizarDemandaCruzada(payload);
+      else if (topic.endsWith("/historial")) actualizarHistorialSuelo(payload);
+    },
+  },
 ];
 
 // ==========================================================
@@ -295,9 +443,9 @@ function conectarMQTT() {
 
   client.on("connect", () => {
     setStatus("Conectado (WS :15675)", "status-connected");
-    client.subscribe(MQTT_CONFIG.topics.iluminacion, { qos: 1 }, (err) => {
+    // Suscripción a Iluminación y Suelo
+    client.subscribe([MQTT_CONFIG.topics.iluminacion, MQTT_CONFIG.topics.suelo], { qos: 1 }, (err) => {
       if (!err) {
-        // Solicita al Edge el historial + KPI del día inmediatamente al conectar
         client.publish(MQTT_CONFIG.topics.requestHistorial, "solicitud", { qos: 1 });
       }
     });
@@ -327,4 +475,3 @@ document.addEventListener("DOMContentLoaded", () => {
   inicializarGraficas();
   conectarMQTT();
 });
-

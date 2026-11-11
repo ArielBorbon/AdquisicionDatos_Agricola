@@ -1,5 +1,5 @@
 import random
-import paho.mqtt.client as mqtt # type: ignore
+import paho.mqtt.client as mqtt  # type: ignore
 from datetime import datetime
 from collections import deque
 import temperatura_metricas
@@ -14,34 +14,38 @@ mqtt_password = "password_seguro_edge"
 
 # ==========================================================
 # CONFIGURACIÓN DE TIEMPOS
-#   MODO_DEMO = True  -> ciclos cortos para comprobar el sistema rápido
-#   MODO_DEMO = False -> valores pensados para operación real
+#   MODO_DEMO = True  -> ciclos cortos para pruebas rápidas
+#   MODO_DEMO = False -> tiempos para producción real
+# ==========================================================
 MODO_DEMO = True
 
 if MODO_DEMO:
-    VENTANA_CLIMA_SEG = 60                 # temperatura / humedad aire / DPV / DPD
-    VENTANA_GDD_SEG = 60              # GDD (15 min)
-    VENTANA_SUELO_SEG = 15                 # promedio + semáforo + ETA "en vivo"
-    VENTANA_HIST_SUELO_SEG = 60            # una fila en el CSV de suelo cada minuto
-    SPAN_TASA_SEG = 120                    # tendencia usada para la tasa de secado (2 min)
+    VENTANA_CLIMA_SEG = 60                 # Temperatura / Humedad Aire / DPV / DPD (1 min)
+    VENTANA_GDD_SEG = 60                   # GDD (1 min)
+    VENTANA_SUELO_SEG = 15                 # Promedio + semáforo en vivo (15 s)
+    VENTANA_HIST_SUELO_SEG = 60            # Fila en CSV de suelo (1 min)
+    SPAN_TASA_SEG = 120                    # Ventana de tendencia para tasa de secado (2 min)
 else:
-    VENTANA_CLIMA_SEG = 15 * 60            # temperatura / humedad aire / DPV / DPD (15 min)
-    VENTANA_GDD_SEG = 60              # GDD (60 min) CAMBIADO A 1 MINUTO PARA EL VIDEO
-    VENTANA_SUELO_SEG = 60
-    VENTANA_HIST_SUELO_SEG = 30 * 60       # una fila cada 30 min (igual que luminosidad)
-    SPAN_TASA_SEG = 3600                   # tendencia de 1 hora
+    VENTANA_CLIMA_SEG = 15 * 60            # Clima (15 min)
+    VENTANA_GDD_SEG = 60                   # GDD (1 min)
+    VENTANA_SUELO_SEG = 60                 # Promedio suelo (1 min)
+    VENTANA_HIST_SUELO_SEG = 30 * 60       # Fila en CSV de suelo (30 min)
+    SPAN_TASA_SEG = 3600                   # Ventana de tendencia (1 hora)
 
-# ---- Umbrales de suelo (se ajustan tras calibrar el terreno) ----
-PUNTO_MARCHITEZ = 30.0     # < 30 %  -> Rojo
-CAPACIDAD_CAMPO = 50.0     # 50-79 % -> Verde
-SATURACION = 80.0          # >= 80 % -> Azul
-MIN_PUNTOS_TASA = 3        # mínimo de promedios de ventana para estimar tendencia
-UMBRAL_CAMBIO_PTS = 1.0    # cambio total menor a esto en el SPAN = "estable" (filtra ruido ADC)
-DPV_DEMANDA_ALTA = 1.2     # kPa: a partir de aquí el aire "exige" agua (zona naranja/roja del DPV)
-ETA_CRITICA_H = 2.0        # horas a marchitez para alerta roja (si además hay DPV alto)
-ETA_ALERTA_H = 6.0         # horas a marchitez para alerta amarilla
-SALTO_RIEGO_PTS = 8.0      # subida entre dos registros del histórico que se cuenta como riego/lluvia
+# ---- Umbrales de Humedad del Suelo (% VWC) ----
+PUNTO_MARCHITEZ = 30.0     # < 30 %  -> Rojo (Marchitez)
+CAPACIDAD_CAMPO = 50.0     # 50-79 % -> Verde (Óptimo)
+SATURACION = 80.0          # >= 80 % -> Azul (Asfixia radicular)
 
+# ---- Parámetros de Cálculo de Tasa y Demanda Cruzada ----
+MIN_PUNTOS_TASA = 3        # Mínimo de promedios para estimar regresión lineal
+UMBRAL_CAMBIO_PTS = 1.0    # Variación mínima (%) en SPAN_TASA para no considerar "Estable"
+DPV_DEMANDA_ALTA = 1.2     # kPa: Umbral donde el aire exige evaporación alta
+ETA_CRITICA_H = 2.0        # Horas a marchitez para disparar Alerta Roja
+ETA_ALERTA_H = 6.0         # Horas a marchitez para disparar Alerta Amarilla
+SALTO_RIEGO_PTS = 8.0      # Incremento brusco que reinicia la curva por evento de riego
+
+# Tópicos MQTT
 TOPICO_SUELO = "campo1/parcelas/parcela1/humedad/suelo"
 TOPICO_REQUEST_HISTORIAL = "campo1/dashboard/request/historial"
 
@@ -70,7 +74,7 @@ TOPICOS_SALIDA = {
     "lum_historial": "campo1/edge/invernaderos/invernadero1/luminosidad/historial"
 }
 
-# Buffers de clima (el suelo ahora tiene su propio flujo más abajo)
+# Buffers de datos
 buffers = {
     "campo1/parcelas/maiz1/temperatura/centigrados": [],
     "campo1/parcelas/maiz1/humedad/aire": []
@@ -78,41 +82,30 @@ buffers = {
 ventana_actual = None
 ventana_gdd_actual = None
 
-# Variables para almacenamiento histórico
+# Archivos de persistencia CSV
 ARCHIVO_HISTORICO = "historico_luminosidad.csv"
 ARCHIVO_HISTORICO_SUELO = "historico_humedad_suelo.csv"
 ARCHIVO_HISTORICO_TEMP = "historico_temperatura.csv"
 ARCHIVO_HISTORICO_HUM_AIRE = "historico_humedad_aire.csv"
 
-# Variables de luminosidad
+# Buffers de Iluminación
 buffer_lum_30m = []
 ventana_30m_actual = None
 ultimo_despacho_grafica = None
 
-# Variables para métricas acumulativas de clima
-# Escoge un valor random entre los períodos del maíz
+# Acumuladores de Clima
 gdd_acumulado = random.choice([
-    random.randint(0, 65), 
-    random.randint(65, 150), 
-    random.randint(150, 235),
-    random.randint(235, 340),
-    random.randint(340, 450),
-    random.randint(450, 650),
-    random.randint(650, 750),
-    random.randint(750, 850),
-    random.randint(850, 1000),
-    random.randint(1000, 1150),
-    random.randint(1150, 1300),
-    random.randint(1300, 1600)
+    random.randint(0, 65), random.randint(65, 150), random.randint(150, 235),
+    random.randint(235, 340), random.randint(340, 450), random.randint(450, 650)
 ])
-ultimo_dpv = None   # lo usa el flujo de suelo para el riesgo cruzado
+ultimo_dpv = None  # Almacena el DPV más reciente para la demanda cruzada
 
-# Estado del flujo de humedad de suelo
-buffer_suelo = []                 # lecturas de la ventana "en vivo"
+# Buffers de Suelo
+buffer_suelo = []
 ventana_suelo_actual = None
-buffer_suelo_hist = []            # lecturas de la ventana del histórico (CSV)
+buffer_suelo_hist = []
 ventana_suelo_hist_actual = None
-muestras_tasa = deque()           # (inicio_ventana, promedio) dentro del SPAN_TASA_SEG
+muestras_tasa = deque()  # Tuplas (datetime, promedio) para regresión de secado
 
 
 def inicializar_csv():
@@ -133,7 +126,6 @@ def obtener_ventana_minutos(dt: datetime, minutos: int) -> datetime:
     return dt.replace(minute=minuto_redondeado, second=0, microsecond=0)
 
 def obtener_ventana_seg(dt: datetime, segundos: int) -> datetime:
-    """Inicio de la ventana de `segundos` que contiene a dt (sirve para 15 s, 1 min, 30 min...)."""
     seg_dia = dt.hour * 3600 + dt.minute * 60 + dt.second
     seg_dia -= seg_dia % segundos
     return dt.replace(hour=seg_dia // 3600, minute=(seg_dia % 3600) // 60,
@@ -145,31 +137,21 @@ def calcular_promedio(lista):
 def leer_historial_generico(archivo, fecha_hoy, columna_valor):
     datos_hoy = {}
     if not os.path.exists(archivo): return datos_hoy
-    
     with open(archivo, mode='r') as file:
         reader = csv.DictReader(file)
         for row in reader:
             if row["Fecha"] == fecha_hoy:
-                hora_corta = row["Hora"][:5] 
+                hora_corta = row["Hora"][:5]
                 datos_hoy[hora_corta] = float(row[columna_valor])
     return datos_hoy
 
 def clasificar_estado_luminosidad(valor: float) -> str:
-    """Clasifica el porcentaje de luminosidad LDR en su estado fisiológico."""
-    if valor <= 20:
-        return "Gris"
-    if valor <= 50:
-        return "Azul"
-    if valor <= 85:
-        return "Verde"
+    if valor <= 20: return "Gris"
+    if valor <= 50: return "Azul"
+    if valor <= 85: return "Verde"
     return "Rojo"
 
 def calcular_kpi_eficiencia_fotosintetica(valores) -> dict:
-    """
-    Calcula el Índice de Eficiencia Fotosintética Diaria:
-        (Ventanas de 30 min en Verde / Total de ventanas de 30 min con luz diurna) * 100
-    'Luz diurna' excluye las ventanas en estado Gris (0-20%).
-    """
     conteo = {"Gris": 0, "Azul": 0, "Verde": 0, "Rojo": 0}
     for v in valores:
         estado = clasificar_estado_luminosidad(float(v))
@@ -201,27 +183,25 @@ def despachar_historial_hoy(cliente, dt_actual):
     fecha_hoy = dt_actual.strftime("%Y-%m-%d")
     datos = leer_historial_generico(ARCHIVO_HISTORICO, fecha_hoy, "Luminosidad")
     
-    # Inyecta el promedio del buffer en vivo a la gráfica antes del cierre de los 30 min
     if buffer_lum_30m and ventana_30m_actual:
         hora_corta = ventana_30m_actual.strftime("%H:%M")
         promedio_vivo = calcular_promedio(buffer_lum_30m)
         datos[hora_corta] = round(promedio_vivo, 2)
 
     kpi = calcular_kpi_eficiencia_fotosintetica(list(datos.values()))
-    payload = {
-        "fecha": fecha_hoy,
-        "serie": datos,
-        "kpi": kpi,
-    }
+    payload = {"fecha": fecha_hoy, "serie": datos, "kpi": kpi}
     cliente.publish(TOPICOS_SALIDA["lum_historial"], json.dumps(payload), qos=1)
 
 # ==========================================================
-# HUMEDAD DE SUELO
+# CÁLCULOS DEL SENSOR DE SUELO & TASA DE SECADO
 # ==========================================================
 def clasificar_suelo(h):
-    if h >= SATURACION: return "Azul|Suelo saturado y sin oxígeno.|Peligro de pudrición; no regar."
-    if h >= CAPACIDAD_CAMPO: return "Verde|Rango óptimo para raíces.|Capacidad de Campo."
-    if h >= PUNTO_MARCHITEZ: return "Amarillo|El suelo se está secando.|Estrés Leve. Monitorear riego."
+    if h >= SATURACION:
+        return "Azul|Suelo saturado y sin oxígeno.|Peligro de pudrición; no regar."
+    if h >= CAPACIDAD_CAMPO:
+        return "Verde|Rango óptimo para raíces.|Capacidad de Campo."
+    if h >= PUNTO_MARCHITEZ:
+        return "Amarillo|El suelo se está secando.|Estrés Leve. Monitorear riego."
     return "Rojo|Condición crítica.|Punto de Marchitez. Regar inmediatamente."
 
 def calcular_tasa_secado():
@@ -235,10 +215,10 @@ def calcular_tasa_secado():
     sxx = sum((x - mx) ** 2 for x in xs)
     if sxx == 0:
         return None
-    pendiente = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx   # % por segundo
+    pendiente = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx
     if abs(pendiente * SPAN_TASA_SEG) < UMBRAL_CAMBIO_PTS:
         return 0.0
-    return -pendiente * 3600.0
+    return -pendiente * 3600.0  # Devuelve la tasa expresada en % por hora
 
 def estimar_tiempo_marchitez(prom, tasa):
     if prom <= PUNTO_MARCHITEZ:
@@ -259,11 +239,11 @@ def evaluar_riesgo_cruzado(prom, horas, dpv):
     if prom <= PUNTO_MARCHITEZ:
         return "Rojo", "Suelo en punto de marchitez. Regar de inmediato."
     if horas is not None and horas <= ETA_CRITICA_H and demanda_alta:
-        return "Rojo", "Se seca rápido y el aire está muy seco. Regar de inmediato."
+        return "Rojo", "Se seca rápido y el aire está muy seco (DPV alto). Regar ya."
     if horas is not None and horas <= ETA_ALERTA_H:
-        return "Amarillo", "Se está secando: conviene programar el riego pronto."
+        return "Amarillo", "Tendencia de secado constante. Programar riego."
     if demanda_alta and prom < CAPACIDAD_CAMPO:
-        return "Amarillo", "Suelo algo seco y el aire está muy seco. Vigilar."
+        return "Amarillo", "Suelo algo seco y demanda atmosférica elevada."
     return None, None
 
 def estado_suelo_final(prom, horas, dpv):
@@ -271,7 +251,7 @@ def estado_suelo_final(prom, horas, dpv):
     rangos = {"Verde": 0, "Amarillo": 1, "Rojo": 2}
     r_color, r_msg = evaluar_riesgo_cruzado(prom, horas, dpv)
     if r_color and color in rangos and rangos[r_color] >= rangos[color]:
-        color, diag, accion = r_color, "Riesgo por tendencia de secado y demanda del aire.", r_msg
+        color, diag, accion = r_color, "Riesgo por tendencia de secado y DPV.", r_msg
     return f"{color}|{diag}|{accion}"
 
 def cerrar_ventana_suelo(cliente, ventana):
@@ -281,9 +261,11 @@ def cerrar_ventana_suelo(cliente, ventana):
     prom = calcular_promedio(buffer_suelo)
     buffer_suelo.clear()
 
+    # Si hubo un salto brusco hacia arriba (riego/lluvia), se reinicia el historial de tasa
     if muestras_tasa and prom - muestras_tasa[-1][1] >= SALTO_RIEGO_PTS:
         muestras_tasa.clear()
     muestras_tasa.append((ventana, prom))
+    
     while (ventana - muestras_tasa[0][0]).total_seconds() > SPAN_TASA_SEG:
         muestras_tasa.popleft()
 
@@ -293,19 +275,16 @@ def cerrar_ventana_suelo(cliente, ventana):
     print(f"[SUELO] Ventana {ventana.strftime('%H:%M:%S')}: {prom:.2f}% | "
           f"tasa={None if tasa is None else round(tasa, 2)} %/h | marchitez: {txt_eta}")
 
-    # --- LÓGICA DE DEMANDA CRUZADA AÑADIDA ---
     r_color, r_msg = evaluar_riesgo_cruzado(prom, horas, ultimo_dpv)
     if r_color is None:
-        if ultimo_dpv is None:
-            msg_demanda = "Gris|Esperando datos atmosféricos (DPV)..."
-        else:
-            msg_demanda = "Verde|Condiciones estables, sin demanda atmosférica crítica."
+        msg_demanda = "Gris|Esperando datos atmosféricos (DPV)..." if ultimo_dpv is None else "Verde|Condiciones atmosféricas y de suelo estables."
     else:
         msg_demanda = f"{r_color}|{r_msg}"
 
+    # Publicaciones MQTT hacia la capa web
     cliente.publish(TOPICOS_SALIDA["hum_suelo_prom"], str(round(prom, 2)), qos=1)
     cliente.publish(TOPICOS_SALIDA["hum_suelo_estado"], estado_suelo_final(prom, horas, ultimo_dpv), qos=1)
-    cliente.publish(TOPICOS_SALIDA["demanda_cruzada"], msg_demanda, qos=1) 
+    cliente.publish(TOPICOS_SALIDA["demanda_cruzada"], msg_demanda, qos=1)
     
     if tasa is not None:
         cliente.publish(TOPICOS_SALIDA["tasa_secado"], str(round(tasa, 2)), qos=1)
@@ -324,8 +303,7 @@ def leer_historial_suelo(fecha_hoy):
     return datos_hoy
 
 def calcular_resumen_suelo(valores):
-    if not valores:
-        return {}
+    if not valores: return {}
     optimos = sum(1 for v in valores if CAPACIDAD_CAMPO <= v < SATURACION)
     riegos = sum(1 for a, b in zip(valores, valores[1:]) if b - a >= SALTO_RIEGO_PTS)
     return {
@@ -342,8 +320,7 @@ def despachar_historial_suelo(cliente, dt_actual):
     cliente.publish(TOPICOS_SALIDA["hum_suelo_historial"], json.dumps(payload), qos=1)
 
 def registrar_historico_suelo(cliente, ventana, valores):
-    if not valores:
-        return
+    if not valores: return
     prom = calcular_promedio(valores)
     with open(ARCHIVO_HISTORICO_SUELO, mode='a', newline='') as file:
         csv.writer(file).writerow([ventana.strftime("%Y-%m-%d"), ventana.strftime("%H:%M:%S"), round(prom, 2)])
@@ -370,10 +347,10 @@ def manejar_suelo(cliente, dt_mensaje, valor):
     buffer_suelo_hist.append(valor)
 
 # ==========================================================
-# MQTT
+# GESTOR MQTT Y PROCESAMIENTO PRINCIPAL
 # ==========================================================
 def on_connect(cliente, userdata, flags, reason_code, properties=None):
-    print(f"Edge conectado al broker MQTT con código {reason_code}")
+    print(f"Edge conectado al broker MQTT con código: {reason_code}")
     cliente.subscribe(TOPICOS_ENTRADA)
 
 def on_message(cliente, userdata, message):
@@ -382,15 +359,15 @@ def on_message(cliente, userdata, message):
     payload = message.payload.decode('utf-8')
     topico = message.topic
     
-    # 1. Peticiones de Historial (Dashboard recién conectado)
+    # Peticiones de Historial (Dashboard recién conectado)
     if topico == TOPICO_REQUEST_HISTORIAL:
-        print("\n[REQUEST] Despachando historial a Dashboard...")
+        print("\n[REQUEST] Despachando historial completo al Dashboard Web...")
         ahora = datetime.now()
         despachar_historial_hoy(cliente, ahora)
         despachar_historial_suelo(cliente, ahora)
         return
 
-    # 2. Parseo seguro de Payload
+    # Lectura del payload (Fecha/Hora + Valor)
     try:
         str_fecha = payload[:19]
         str_valor = payload[19:].strip()
@@ -399,80 +376,58 @@ def on_message(cliente, userdata, message):
     except ValueError:
         return
 
-    # 3. Flujo del Sensor de Suelo
+    # Sensor de Suelo
     if topico == TOPICO_SUELO:
-        if message.retain:
-            return
+        if message.retain: return
         manejar_suelo(cliente, dt_mensaje, valor)
         return
 
-    # 4. Flujo del Invernadero de Iluminación (CARRIL RÁPIDO)
+    # Sensor de Iluminación
     if topico == "campo1/invernaderos/invernadero1/luminosidad":
-        # Evaluamos semáforo y publicamos en vivo inmediatamente
-        if valor <= 20: estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, encender iluminación artificial o revisar obstrucciones."
-        elif valor <= 50: estado_lum = "Azul|Adecuado para plantas de sombra, pero insuficiente para maximizar el rendimiento de maíz/tomate.|Retirar mallas sombra si están desplegadas."
-        elif valor <= 85: estado_lum = "Verde|Rango ideal. Tasa de asimilación fotosintética máxima sin generar estrés térmico.|Condiciones ideales, no se requiere acción."
-        else: estado_lum = "Rojo|Radiación extrema. Alto riesgo de fotoinhibición y quemaduras en el tejido vegetal.|Precaución. Desplegar malla sombra al 30% o 50% inmediatamente."
+        if valor <= 20: estado_lum = "Gris|Fotosíntesis mínima o nula.|Condición normal de noche. Si ocurre de día, revisar iluminación."
+        elif valor <= 50: estado_lum = "Azul|Luz baja.|Retirar mallas sombra si están desplegadas."
+        elif valor <= 85: estado_lum = "Verde|Rango ideal.|Condiciones ideales, no se requiere acción."
+        else: estado_lum = "Rojo|Radiación extrema.|Desplegar malla sombra al 30% o 50% inmediatamente."
 
         cliente.publish(TOPICOS_SALIDA["lum_prom"], str(round(valor, 2)), qos=1)
         cliente.publish(TOPICOS_SALIDA["lum_estado"], estado_lum, qos=1)
         
-        # Calculamos la ventana de 30 minutos de este mensaje
         ventana_30m = obtener_ventana_minutos(dt_mensaje, 30)
-        
         if ventana_30m_actual is None:
             ventana_30m_actual = ventana_30m
 
-        # Si cambió el bloque de 30 min, procesamos el buffer VIEJO antes de meter el dato NUEVO
         if ventana_30m > ventana_30m_actual:
             prom_30m = calcular_promedio(buffer_lum_30m)
             fecha_str = ventana_30m_actual.strftime("%Y-%m-%d")
             hora_str = ventana_30m_actual.strftime("%H:%M:%S")
             
-            # Guardamos en CSV (Persistencia permanente)
             with open(ARCHIVO_HISTORICO, mode='a', newline='') as file:
-                writer = csv.writer(file)
-                writer.writerow([fecha_str, hora_str, round(prom_30m, 2)])
+                csv.writer(file).writerow([fecha_str, hora_str, round(prom_30m, 2)])
             
-            print(f"[EDGE] Histórico LDR guardado ({hora_str}): {round(prom_30m, 2)}%")
-            
-            # Limpiamos y actualizamos la ventana
             buffer_lum_30m.clear()
             ventana_30m_actual = ventana_30m
-            
-            # Despachamos el historial consolidado a la red
             despachar_historial_hoy(cliente, dt_mensaje)
             ultimo_despacho_grafica = dt_mensaje
 
-        # Metemos el dato NUEVO al buffer de la ventana actual
         buffer_lum_30m.append(valor)
-
-        # Despachamos a la gráfica en vivo cada 30 segundos usando el promedio temporal inyectado
         if ultimo_despacho_grafica is None or (dt_mensaje - ultimo_despacho_grafica).total_seconds() >= 30:
             despachar_historial_hoy(cliente, dt_mensaje)
             ultimo_despacho_grafica = dt_mensaje
-
         return
 
-    # ==========================================================
-    # 5. Ventana de CLIMA (Temperatura y Humedad del aire)
-    # ==========================================================
+    # Clima (Temperatura y Humedad Aire)
     ventana_mensaje = obtener_ventana_seg(dt_mensaje, VENTANA_CLIMA_SEG)
     ventana_gdd_mensaje = obtener_ventana_seg(dt_mensaje, VENTANA_GDD_SEG)
     
-    if ventana_actual is None:
-        ventana_actual = ventana_mensaje
-    if ventana_gdd_actual is None:
-        ventana_gdd_actual = ventana_gdd_mensaje
+    if ventana_actual is None: ventana_actual = ventana_mensaje
+    if ventana_gdd_actual is None: ventana_gdd_actual = ventana_gdd_mensaje
 
-    # Misma corrección: Cerramos la ventana vieja antes de agregar el dato
     if ventana_mensaje > ventana_actual:
         procesar_y_publicar_clima(cliente, ventana_actual, dt_mensaje)
         ventana_actual = ventana_mensaje
         
     if ventana_gdd_mensaje > ventana_gdd_actual:
         cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 4)), qos=1)
-        print(f"[EDGE] GDD acumulado enviado: {round(gdd_acumulado, 4)}")
         ventana_gdd_actual = ventana_gdd_mensaje
 
     if topico in buffers:
@@ -480,17 +435,12 @@ def on_message(cliente, userdata, message):
 
 def procesar_y_publicar_clima(cliente, ventana, dt_actual):
     global buffers, gdd_acumulado, ultimo_dpv
-    print(f"\n--- CIERRE DE VENTANA CLIMA EDGE ({VENTANA_CLIMA_SEG} s): {ventana.strftime('%H:%M:%S')} ---")
-    
     prom_temp = calcular_promedio(buffers["campo1/parcelas/maiz1/temperatura/centigrados"])
     prom_hum_aire = calcular_promedio(buffers["campo1/parcelas/maiz1/humedad/aire"])
-    print(f"Temperatura promedio: {prom_temp}")
-    print(f"Humedad del aire promedio: {prom_hum_aire}")
     
     fecha_str = ventana.strftime("%Y-%m-%d")
     hora_str = ventana.strftime("%H:%M:%S")
 
-    # Guardar en CSV solo si hubo datos
     if buffers["campo1/parcelas/maiz1/temperatura/centigrados"]:
         with open(ARCHIVO_HISTORICO_TEMP, mode='a', newline='') as file:
             csv.writer(file).writerow([fecha_str, hora_str, round(prom_temp, 2)])
@@ -502,8 +452,6 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
     if prom_temp > 0 and prom_hum_aire > 0:
         dpv = temperatura_metricas.calcular_dpv(prom_temp, prom_hum_aire)
         dpd = temperatura_metricas.calcular_dpd(prom_temp, prom_hum_aire)
-        print(f"Depresión de vapor: {dpv}")
-        print(f"Déficit de punto de rocío: {dpd}")
         try:
             ultimo_dpv = float(dpv)
         except (TypeError, ValueError):

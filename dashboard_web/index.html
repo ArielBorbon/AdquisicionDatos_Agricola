@@ -1,14 +1,16 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AgroIoT Edge — Panel de Monitoreo Invernadero 1</title>
+  <title>AgroIoT Edge — Panel de Monitoreo Agrícola</title>
   <link rel="stylesheet" href="style.css" />
-  <!-- Librerías vía CDN (compatibles con archivo local y servidor HTTP) -->
+  <!-- Librerías vía CDN -->
   <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
+
 <body>
   <header class="topbar">
     <div class="topbar-brand">
@@ -29,7 +31,7 @@
 
   <main class="dashboard-grid">
     <!-- =======================================================
-         MÓDULO 1 (ACTIVO): INVERNADERO 1 — ILUMINACIÓN (LDR)
+         MÓDULO 1: INVERNADERO 1 — ILUMINACIÓN (LDR)
          ======================================================= -->
     <section id="modulo-iluminacion" class="card card-active">
       <div class="card-header">
@@ -104,8 +106,7 @@
     </section>
 
     <!-- =======================================================
-         SLOT PARA COMPAÑERO: MÓDULO DE CLIMA (MAÍZ 1)
-         Tópico sugerido: campo1/edge/parcelas/maiz1/#
+         MÓDULO 2 (RESERVADO): CLIMA (MAÍZ 1)
          ======================================================= -->
     <section id="modulo-clima" class="card card-placeholder">
       <div class="card-header">
@@ -122,25 +123,87 @@
     </section>
 
     <!-- =======================================================
-         SLOT PARA COMPAÑERO: MÓDULO DE SUELO (PARCELA 1)
-         Tópico sugerido: campo1/edge/parcelas/parcela1/#
+         MÓDULO 3 (ACTIVO): PARCELA 1 — HUMEDAD DE SUELO & TASA DE SECADO
          ======================================================= -->
-    <section id="modulo-suelo" class="card card-placeholder">
+    <section id="modulo-suelo" class="card card-active">
       <div class="card-header">
         <div>
-          <span class="module-tag muted">Parcela 1</span>
+          <span class="module-tag">Parcela 1</span>
           <h2>Humedad de Suelo</h2>
         </div>
-        <span class="state-badge state-placeholder">ESPACIO RESERVADO</span>
+        <span id="suelo-badge" class="state-badge state-gris">ESPERANDO</span>
       </div>
-      <div class="placeholder-body">
-        <p>Módulo preparado para integración del equipo de <strong>Suelo</strong>.</p>
-        <code>campo1/edge/parcelas/parcela1/#</code>
+
+      <!-- Lectura en vivo y diagnóstico -->
+      <div class="live-metrics">
+        <div class="metric-box">
+          <span class="metric-label">Humedad de Suelo (Live)</span>
+          <strong id="suelo-live-value" class="metric-value">-- %</strong>
+          <div class="progress-track">
+            <div id="suelo-progress-bar" class="progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="diagnostic-box">
+          <p><strong>Estado Fisiológico:</strong> <span id="suelo-fisio">Esperando telemetría del Edge...</span></p>
+          <p><strong>Recomendación de Riego:</strong> <span id="suelo-accion">--</span></p>
+        </div>
+      </div>
+
+      <!-- KPI DESTACADO: Tasa de Secado y Tiempo a Marchitez -->
+      <div class="kpi-box-primary">
+        <div class="kpi-header-row">
+          <span class="kpi-box-label">Tasa de Secado</span>
+          <!-- Badge de Semáforo Específico de Tasa -->
+          <span id="tasa-secado-badge" class="state-badge state-gris">MEDICIÓN</span>
+        </div>
+        <div class="kpi-box-val-group">
+          <strong id="tasa-secado-value" class="kpi-box-value">--</strong>
+          <span class="kpi-box-unit">% / hora</span>
+        </div>
+        <span id="tasa-secado-sub" class="kpi-box-subtext">Monitoreando tendencia...</span>
+      </div>
+
+
+
+      <div class="kpi-grid-suelo">
+        <div class="kpi-box-primary">
+          <span class="kpi-box-label">Tasa de Secado</span>
+          <div class="kpi-box-val-group">
+            <strong id="tasa-secado-value" class="kpi-box-value">--</strong>
+            <span class="kpi-box-unit">% / hora</span>
+          </div>
+          <span id="tasa-secado-sub" class="kpi-box-subtext">Monitoreando tendencia...</span>
+        </div>
+
+        <div class="kpi-box-secondary">
+          <span class="kpi-box-label">Tiempo a Marchitez (&lt;30%)</span>
+          <strong id="tiempo-marchitez-value" class="kpi-box-value-sec">--</strong>
+          <span class="kpi-box-subtext">Basado en tasa actual</span>
+        </div>
+      </div>
+
+      <!-- Alerta de Demanda Cruzada (DPV vs Suelo) -->
+      <div id="demanda-cruzada-box" class="cross-demand-box state-gris-light">
+        <strong>Demanda Cruzada (Atmósfera - Suelo):</strong>
+        <p id="demanda-cruzada-texto">Evaluando relación DPV / Humedad...</p>
+      </div>
+      </div>
+
+      <!-- Tendencia Histórica de Suelo -->
+      <div class="trend-section">
+        <div class="section-title-row">
+          <h3>Curva de Secado del Suelo</h3>
+          <span id="suelo-hist-resumen" class="chip">-- % prom</span>
+        </div>
+        <div class="trend-wrapper">
+          <canvas id="suelo-trend-chart"></canvas>
+        </div>
       </div>
     </section>
   </main>
 
   <script src="app.js"></script>
 </body>
-</html>
 
+</html>

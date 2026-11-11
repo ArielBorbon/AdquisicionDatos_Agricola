@@ -104,7 +104,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Grid modular de 3 módulos */
+/* Grid modular */
 .dashboard-grid {
   max-width: 1440px;
   margin: 0 auto;
@@ -152,7 +152,7 @@ body {
   font-size: 1.15rem;
 }
 
-/* Badges de estado lumínico */
+/* Badges de estado */
 .state-badge {
   padding: 5px 11px;
   border-radius: 8px;
@@ -162,10 +162,27 @@ body {
   white-space: nowrap;
 }
 
-.state-gris { background: var(--gris); }
-.state-azul { background: var(--azul); }
-.state-verde { background: var(--verde); }
-.state-rojo { background: var(--rojo); }
+.state-gris {
+  background: var(--gris);
+}
+
+.state-azul {
+  background: var(--azul);
+}
+
+.state-verde {
+  background: var(--verde);
+}
+
+.state-amarillo {
+  background: var(--amarillo);
+  color: #422006;
+}
+
+.state-rojo {
+  background: var(--rojo);
+}
+
 .state-placeholder {
   background: #e2e8f0;
   color: #475569;
@@ -220,7 +237,7 @@ body {
   gap: 6px;
 }
 
-/* Sección KPI Dona */
+/* KPI Sections & Tarjetas de Suelo */
 .section-title-row {
   display: flex;
   justify-content: space-between;
@@ -243,6 +260,100 @@ body {
   border-radius: 999px;
 }
 
+.kpi-grid-suelo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.kpi-box-primary,
+.kpi-box-secondary {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.kpi-box-label {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.kpi-box-val-group {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.kpi-box-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.kpi-box-value-sec {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 4px 0;
+}
+
+.kpi-box-unit {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.kpi-box-subtext {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Recuadro de Demanda Cruzada */
+.cross-demand-box {
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  border-left: 4px solid var(--gris);
+}
+
+.cross-demand-box strong {
+  display: block;
+  font-size: 0.78rem;
+  margin-bottom: 2px;
+}
+
+.state-gris-light {
+  background: #f1f5f9;
+  border-color: var(--gris);
+  color: #334155;
+}
+
+.state-verde-light {
+  background: #f0fdf4;
+  border-color: var(--verde);
+  color: #166534;
+}
+
+.state-amarillo-light {
+  background: #fefce8;
+  border-color: var(--amarillo);
+  color: #854d0e;
+}
+
+.state-rojo-light {
+  background: #fef2f2;
+  border-color: var(--rojo);
+  color: #991b1b;
+}
+
+/* Gráficas */
 .doughnut-wrapper {
   position: relative;
   height: 245px;
@@ -278,18 +389,28 @@ body {
   flex-shrink: 0;
 }
 
-.breakdown-item.azul .swatch { background: var(--azul); }
-.breakdown-item.verde .swatch { background: var(--verde); }
-.breakdown-item.rojo .swatch { background: var(--rojo); }
-.breakdown-item.gris .swatch { background: var(--gris); }
+.breakdown-item.azul .swatch {
+  background: var(--azul);
+}
 
-/* Tendencia 30 min */
+.breakdown-item.verde .swatch {
+  background: var(--verde);
+}
+
+.breakdown-item.rojo .swatch {
+  background: var(--rojo);
+}
+
+.breakdown-item.gris .swatch {
+  background: var(--gris);
+}
+
 .trend-wrapper {
   position: relative;
   height: 170px;
 }
 
-/* Tarjetas placeholder para Clima y Suelo */
+/* Placeholders */
 .card-placeholder {
   border-style: dashed;
   background: #fafcfb;
@@ -316,3 +437,10 @@ body {
   font-size: 0.8rem;
 }
 
+.kpi-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
