@@ -1,0 +1,318 @@
+:root {
+  --bg: #f3f6f4;
+  --surface: #ffffff;
+  --surface-muted: #f8faf9;
+  --border: #dfe6e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+
+  --gris: #64748b;
+  --azul: #2563eb;
+  --verde: #16a34a;
+  --rojo: #dc2626;
+  --amarillo: #eab308;
+
+  --radius: 14px;
+  --shadow: 0 4px 18px rgba(15, 23, 42, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+  padding: 20px;
+}
+
+/* Header */
+.topbar {
+  max-width: 1440px;
+  margin: 0 auto 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: var(--shadow);
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--verde);
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.15);
+}
+
+.topbar h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.status-connected {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-connecting {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.status-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.last-update {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* Grid modular de 3 módulos */
+.dashboard-grid {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 20px;
+  align-items: stretch;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.module-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--verde);
+  margin-bottom: 2px;
+}
+
+.module-tag.muted {
+  color: var(--text-muted);
+}
+
+.card-header h2 {
+  font-size: 1.15rem;
+}
+
+/* Badges de estado lumínico */
+.state-badge {
+  padding: 5px 11px;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.state-gris { background: var(--gris); }
+.state-azul { background: var(--azul); }
+.state-verde { background: var(--verde); }
+.state-rojo { background: var(--rojo); }
+.state-placeholder {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+/* Lectura en vivo */
+.live-metrics {
+  display: grid;
+  gap: 12px;
+}
+
+.metric-box {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.metric-label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.metric-value {
+  display: block;
+  font-size: 1.75rem;
+  font-weight: 800;
+  margin: 2px 0 8px;
+}
+
+.progress-track {
+  width: 100%;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--gris);
+  transition: width 0.35s ease, background-color 0.35s ease;
+}
+
+.diagnostic-box {
+  background: var(--surface-muted);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 0.86rem;
+  display: grid;
+  gap: 6px;
+}
+
+/* Sección KPI Dona */
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.section-title-row h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.chip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #eef2f6;
+  color: #334155;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+.doughnut-wrapper {
+  position: relative;
+  height: 245px;
+  margin: 0 auto 12px;
+}
+
+.kpi-breakdown {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.breakdown-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+}
+
+.breakdown-item strong {
+  margin-left: auto;
+  font-size: 0.82rem;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.breakdown-item.azul .swatch { background: var(--azul); }
+.breakdown-item.verde .swatch { background: var(--verde); }
+.breakdown-item.rojo .swatch { background: var(--rojo); }
+.breakdown-item.gris .swatch { background: var(--gris); }
+
+/* Tendencia 30 min */
+.trend-wrapper {
+  position: relative;
+  height: 170px;
+}
+
+/* Tarjetas placeholder para Clima y Suelo */
+.card-placeholder {
+  border-style: dashed;
+  background: #fafcfb;
+}
+
+.placeholder-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 36px 16px;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.placeholder-body code {
+  background: #eef2f6;
+  color: #334155;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+

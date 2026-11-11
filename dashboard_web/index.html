@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AgroIoT Edge — Panel de Monitoreo Invernadero 1</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Librerías vía CDN (compatibles con archivo local y servidor HTTP) -->
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <span class="brand-dot"></span>
+      <div>
+        <h1>Panel Agrícola IoT</h1>
+        <p class="subtitle">Arquitectura Edge + RabbitMQ Web-MQTT</p>
+      </div>
+    </div>
+
+    <div class="topbar-status">
+      <span id="mqtt-status" class="status-pill status-connecting">
+        Conectando a RabbitMQ...
+      </span>
+      <span id="last-update" class="last-update">Sin lecturas aún</span>
+    </div>
+  </header>
+
+  <main class="dashboard-grid">
+    <!-- =======================================================
+         MÓDULO 1 (ACTIVO): INVERNADERO 1 — ILUMINACIÓN (LDR)
+         ======================================================= -->
+    <section id="modulo-iluminacion" class="card card-active">
+      <div class="card-header">
+        <div>
+          <span class="module-tag">Invernadero 1</span>
+          <h2>Iluminación (LDR)</h2>
+        </div>
+        <span id="lum-badge" class="state-badge state-gris">ESPERANDO</span>
+      </div>
+
+      <!-- Lectura en vivo y diagnóstico -->
+      <div class="live-metrics">
+        <div class="metric-box">
+          <span class="metric-label">Nivel Actual (Live)</span>
+          <strong id="lum-live-value" class="metric-value">-- %</strong>
+          <div class="progress-track">
+            <div id="lum-progress-bar" class="progress-fill" style="width: 0%"></div>
+          </div>
+        </div>
+
+        <div class="diagnostic-box">
+          <p><strong>Fisiología:</strong> <span id="lum-fisio">Esperando telemetría del Edge...</span></p>
+          <p><strong>Acción (Malla Sombra):</strong> <span id="lum-accion">--</span></p>
+        </div>
+      </div>
+
+      <!-- KPI: Gráfica de Dona (Chart.js) -->
+      <div class="kpi-section">
+        <div class="section-title-row">
+          <h3>Índice de Eficiencia Fotosintética Diaria</h3>
+          <span id="kpi-ventanas-diurnas" class="chip">0 ventanas diurnas</span>
+        </div>
+
+        <div class="doughnut-wrapper">
+          <canvas id="kpi-doughnut-chart"></canvas>
+        </div>
+
+        <div class="kpi-breakdown">
+          <div class="breakdown-item azul">
+            <span class="swatch"></span>
+            <span>Azul (21–50%)</span>
+            <strong id="count-azul">0 (0%)</strong>
+          </div>
+          <div class="breakdown-item verde">
+            <span class="swatch"></span>
+            <span>Verde Óptimo (51–85%)</span>
+            <strong id="count-verde">0 (0%)</strong>
+          </div>
+          <div class="breakdown-item rojo">
+            <span class="swatch"></span>
+            <span>Rojo Extrema (86–100%)</span>
+            <strong id="count-rojo">0 (0%)</strong>
+          </div>
+          <div class="breakdown-item gris">
+            <span class="swatch"></span>
+            <span>Gris Nocturna (excluida)</span>
+            <strong id="count-gris">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tendencia histórica de ventanas de 30 min -->
+      <div class="trend-section">
+        <div class="section-title-row">
+          <h3>Tendencia Diaria (Ventanas de 30 min)</h3>
+          <span id="kpi-fecha" class="chip">--</span>
+        </div>
+        <div class="trend-wrapper">
+          <canvas id="lum-trend-chart"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- =======================================================
+         SLOT PARA COMPAÑERO: MÓDULO DE CLIMA (MAÍZ 1)
+         Tópico sugerido: campo1/edge/parcelas/maiz1/#
+         ======================================================= -->
+    <section id="modulo-clima" class="card card-placeholder">
+      <div class="card-header">
+        <div>
+          <span class="module-tag muted">Parcela: Maíz 1</span>
+          <h2>Clima (Temperatura / DPV / GDD)</h2>
+        </div>
+        <span class="state-badge state-placeholder">ESPACIO RESERVADO</span>
+      </div>
+      <div class="placeholder-body">
+        <p>Módulo preparado para integración del equipo de <strong>Clima</strong>.</p>
+        <code>campo1/edge/parcelas/maiz1/#</code>
+      </div>
+    </section>
+
+    <!-- =======================================================
+         SLOT PARA COMPAÑERO: MÓDULO DE SUELO (PARCELA 1)
+         Tópico sugerido: campo1/edge/parcelas/parcela1/#
+         ======================================================= -->
+    <section id="modulo-suelo" class="card card-placeholder">
+      <div class="card-header">
+        <div>
+          <span class="module-tag muted">Parcela 1</span>
+          <h2>Humedad de Suelo</h2>
+        </div>
+        <span class="state-badge state-placeholder">ESPACIO RESERVADO</span>
+      </div>
+      <div class="placeholder-body">
+        <p>Módulo preparado para integración del equipo de <strong>Suelo</strong>.</p>
+        <code>campo1/edge/parcelas/parcela1/#</code>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

@@ -154,6 +154,48 @@ def leer_historial_generico(archivo, fecha_hoy, columna_valor):
                 datos_hoy[hora_corta] = float(row[columna_valor])
     return datos_hoy
 
+def clasificar_estado_luminosidad(valor: float) -> str:
+    """Clasifica el porcentaje de luminosidad LDR en su estado fisiológico."""
+    if valor <= 20:
+        return "Gris"
+    if valor <= 50:
+        return "Azul"
+    if valor <= 85:
+        return "Verde"
+    return "Rojo"
+
+def calcular_kpi_eficiencia_fotosintetica(valores) -> dict:
+    """
+    Calcula el Índice de Eficiencia Fotosintética Diaria:
+        (Ventanas de 30 min en Verde / Total de ventanas de 30 min con luz diurna) * 100
+    'Luz diurna' excluye las ventanas en estado Gris (0-20%).
+    """
+    conteo = {"Gris": 0, "Azul": 0, "Verde": 0, "Rojo": 0}
+    for v in valores:
+        estado = clasificar_estado_luminosidad(float(v))
+        conteo[estado] += 1
+
+    ventanas_diurnas = conteo["Azul"] + conteo["Verde"] + conteo["Rojo"]
+    if ventanas_diurnas > 0:
+        eficiencia = round((conteo["Verde"] / ventanas_diurnas) * 100, 2)
+        proporciones = {
+            "Azul": round((conteo["Azul"] / ventanas_diurnas) * 100, 2),
+            "Verde": round((conteo["Verde"] / ventanas_diurnas) * 100, 2),
+            "Rojo": round((conteo["Rojo"] / ventanas_diurnas) * 100, 2),
+        }
+    else:
+        eficiencia = 0.0
+        proporciones = {"Azul": 0.0, "Verde": 0.0, "Rojo": 0.0}
+
+    return {
+        "nombre": "Índice de Eficiencia Fotosintética Diaria",
+        "eficiencia_fotosintetica": eficiencia,
+        "ventanas_diurnas": ventanas_diurnas,
+        "ventanas_totales": len(valores),
+        "conteo_estados": conteo,
+        "proporciones_diurnas_pct": proporciones,
+    }
+
 def despachar_historial_hoy(cliente, dt_actual):
     global buffer_lum_30m, ventana_30m_actual
     fecha_hoy = dt_actual.strftime("%Y-%m-%d")
@@ -164,8 +206,14 @@ def despachar_historial_hoy(cliente, dt_actual):
         hora_corta = ventana_30m_actual.strftime("%H:%M")
         promedio_vivo = calcular_promedio(buffer_lum_30m)
         datos[hora_corta] = round(promedio_vivo, 2)
-        
-    cliente.publish(TOPICOS_SALIDA["lum_historial"], json.dumps(datos), qos=1)
+
+    kpi = calcular_kpi_eficiencia_fotosintetica(list(datos.values()))
+    payload = {
+        "fecha": fecha_hoy,
+        "serie": datos,
+        "kpi": kpi,
+    }
+    cliente.publish(TOPICOS_SALIDA["lum_historial"], json.dumps(payload), qos=1)
 
 # ==========================================================
 # HUMEDAD DE SUELO

@@ -1,0 +1,330 @@
+// ==========================================================
+// CONFIGURACIÓN RABBITMQ WEB-MQTT (Puerto 15675, ruta /ws)
+// ==========================================================
+const MQTT_CONFIG = {
+  url: "ws://localhost:15675/ws",
+  options: {
+    clientId: "web-dashboard-" + Math.random().toString(16).slice(2, 10),
+    protocolVersion: 4, // MQTT 3.1.1 (compatible con RabbitMQ 3.x y 4.x)
+    clean: true,
+    reconnectPeriod: 3000,
+    connectTimeout: 10000,
+    username: "usuario_dashboard",
+    password: "password_seguro_dash",
+  },
+  topics: {
+    iluminacion: "campo1/edge/invernaderos/invernadero1/#",
+    requestHistorial: "campo1/dashboard/request/historial",
+    // Espacios listos para que tus compañeros activen sus suscripciones:
+    // clima: "campo1/edge/parcelas/maiz1/#",
+    // suelo: "campo1/edge/parcelas/parcela1/#",
+  },
+};
+
+const COLORES = {
+  Gris: "#64748b",
+  Azul: "#2563eb",
+  Verde: "#16a34a",
+  Rojo: "#dc2626",
+  Vacio: "#e2e8f0",
+};
+
+// ==========================================================
+// PLUGIN CHART.JS v4: TEXTO CENTRAL EN GRÁFICA DE DONA
+// ==========================================================
+const kpiCenterTextPlugin = {
+  id: "kpiCenterText",
+  afterDraw(chart) {
+    if (chart.config.type !== "doughnut") return;
+    const meta = chart.getDatasetMeta(0);
+    if (!meta || !meta.data.length) return;
+
+    const { x, y, innerRadius } = meta.data[0];
+    const { ctx } = chart;
+    const kpiTexto = chart.$kpiTexto ?? "-- %";
+    const kpiSubtexto = chart.$kpiSubtexto ?? "Eficiencia";
+
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // Porcentaje principal escalado al diámetro interno de la dona
+    const mainFontSize = Math.max(20, Math.round(innerRadius * 0.42));
+    ctx.font = `800 ${mainFontSize}px "Segoe UI", system-ui, sans-serif`;
+    ctx.fillStyle = "#0f172a";
+    ctx.fillText(kpiTexto, x, y - mainFontSize * 0.16);
+
+    // Subtítulo debajo del porcentaje
+    const subFontSize = Math.max(11, Math.round(innerRadius * 0.16));
+    ctx.font = `600 ${subFontSize}px "Segoe UI", system-ui, sans-serif`;
+    ctx.fillStyle = "#64748b";
+    ctx.fillText(kpiSubtexto, x, y + mainFontSize * 0.48);
+
+    ctx.restore();
+  },
+};
+
+// ==========================================================
+// INICIALIZACIÓN DE GRÁFICAS
+// ==========================================================
+let kpiDoughnutChart = null;
+let lumTrendChart = null;
+
+function inicializarGraficas() {
+  const ctxDona = document.getElementById("kpi-doughnut-chart").getContext("2d");
+  kpiDoughnutChart = new Chart(ctxDona, {
+    type: "doughnut",
+    data: {
+      labels: ["Sin luz diurna"],
+      datasets: [
+        {
+          data: [1],
+          backgroundColor: [COLORES.Vacio],
+          borderWidth: 2,
+          borderColor: "#ffffff",
+          hoverOffset: 6,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: "68%",
+      plugins: {
+        legend: {
+          position: "bottom",
+          labels: {
+            usePointStyle: true,
+            padding: 14,
+            font: { size: 12 },
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label(context) {
+              const label = context.label || "";
+              const val = context.parsed;
+              return context.chart.$sinDatos
+                ? " Esperando ventanas con luz diurna (Azul/Verde/Rojo)"
+                : ` ${label}: ${val}%`;
+            },
+          },
+        },
+      },
+    },
+    plugins: [kpiCenterTextPlugin],
+  });
+  kpiDoughnutChart.$kpiTexto = "-- %";
+  kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
+  kpiDoughnutChart.$sinDatos = true;
+
+  const ctxTrend = document.getElementById("lum-trend-chart").getContext("2d");
+  lumTrendChart = new Chart(ctxTrend, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Luminosidad 30m (%)",
+          data: [],
+          borderColor: "#16a34a",
+          backgroundColor: "rgba(22, 163, 74, 0.12)",
+          borderWidth: 2,
+          pointRadius: 3,
+          fill: true,
+          tension: 0.25,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { min: 0, max: 100, ticks: { callback: (v) => `${v}%` } },
+        x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 8 } },
+      },
+      plugins: {
+        legend: { display: false },
+      },
+    },
+  });
+}
+
+// ==========================================================
+// LÓGICA DEL MÓDULO: INVERNADERO 1 (ILUMINACIÓN)
+// ==========================================================
+function clasificarLuminosidadJS(valor) {
+  if (valor <= 20) return "Gris";
+  if (valor <= 50) return "Azul";
+  if (valor <= 85) return "Verde";
+  return "Rojo";
+}
+
+function calcularKpiFallback(serie) {
+  const conteo = { Gris: 0, Azul: 0, Verde: 0, Rojo: 0 };
+  for (const val of Object.values(serie)) {
+    conteo[clasificarLuminosidadJS(Number(val))]++;
+  }
+  const diurnas = conteo.Azul + conteo.Verde + conteo.Rojo;
+  const eficiencia = diurnas > 0 ? Number(((conteo.Verde / diurnas) * 100).toFixed(2)) : 0;
+  return {
+    eficiencia_fotosintetica: eficiencia,
+    ventanas_diurnas: diurnas,
+    conteo_estados: conteo,
+    proporciones_diurnas_pct: {
+      Azul: diurnas > 0 ? Number(((conteo.Azul / diurnas) * 100).toFixed(2)) : 0,
+      Verde: diurnas > 0 ? Number(((conteo.Verde / diurnas) * 100).toFixed(2)) : 0,
+      Rojo: diurnas > 0 ? Number(((conteo.Rojo / diurnas) * 100).toFixed(2)) : 0,
+    },
+  };
+}
+
+function actualizarLuminosidadLive(payload) {
+  const valor = Number.parseFloat(payload);
+  if (Number.isNaN(valor)) return;
+
+  const clamped = Math.max(0, Math.min(100, valor));
+  const colorKey = clasificarLuminosidadJS(clamped);
+
+  document.getElementById("lum-live-value").textContent = `${clamped.toFixed(2)} %`;
+  const bar = document.getElementById("lum-progress-bar");
+  bar.style.width = `${clamped}%`;
+  bar.style.backgroundColor = COLORES[colorKey];
+}
+
+function actualizarEstadoLuminosidad(payload) {
+  const partes = payload.split("|");
+  if (partes.length < 3) return;
+
+  const [color, fisiologia, accion] = partes;
+  const badge = document.getElementById("lum-badge");
+  badge.textContent = color.toUpperCase();
+  badge.className = `state-badge state-${color.toLowerCase()}`;
+
+  document.getElementById("lum-fisio").textContent = fisiologia;
+  document.getElementById("lum-accion").textContent = accion;
+}
+
+function actualizarHistorialYKpi(payload) {
+  try {
+    const data = JSON.parse(payload);
+    // Soporta tanto el nuevo formato { fecha, serie, kpi } como el formato plano legacy
+    const serie = data.serie && typeof data.serie === "object" ? data.serie : data;
+    const kpi = data.kpi || calcularKpiFallback(serie);
+
+    // 1. Actualizar chip de fecha y gráfica de tendencia 30m
+    if (data.fecha) {
+      document.getElementById("kpi-fecha").textContent = data.fecha;
+    }
+    const horas = Object.keys(serie);
+    const valores = Object.values(serie);
+    lumTrendChart.data.labels = horas;
+    lumTrendChart.data.datasets[0].data = valores;
+    lumTrendChart.update();
+
+    // 2. Actualizar KPI en la Dona
+    const conteo = kpi.conteo_estados || { Gris: 0, Azul: 0, Verde: 0, Rojo: 0 };
+    const prop = kpi.proporciones_diurnas_pct || { Azul: 0, Verde: 0, Rojo: 0 };
+    const diurnas = kpi.ventanas_diurnas ?? (conteo.Azul + conteo.Verde + conteo.Rojo);
+    const eficiencia = Number(kpi.eficiencia_fotosintetica ?? 0);
+
+    document.getElementById("kpi-ventanas-diurnas").textContent =
+      `${diurnas} ${diurnas === 1 ? "ventana diurna" : "ventanas diurnas"}`;
+    document.getElementById("count-azul").textContent = `${conteo.Azul} (${prop.Azul}%)`;
+    document.getElementById("count-verde").textContent = `${conteo.Verde} (${prop.Verde}%)`;
+    document.getElementById("count-rojo").textContent = `${conteo.Rojo} (${prop.Rojo}%)`;
+    document.getElementById("count-gris").textContent = `${conteo.Gris}`;
+
+    if (diurnas > 0) {
+      kpiDoughnutChart.$sinDatos = false;
+      kpiDoughnutChart.$kpiTexto = `${eficiencia.toFixed(1)}%`;
+      kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
+      kpiDoughnutChart.data.labels = [
+        "Azul (Luz baja)",
+        "Verde (Óptimo)",
+        "Rojo (Extrema)",
+      ];
+      kpiDoughnutChart.data.datasets[0].data = [prop.Azul, prop.Verde, prop.Rojo];
+      kpiDoughnutChart.data.datasets[0].backgroundColor = [
+        COLORES.Azul,
+        COLORES.Verde,
+        COLORES.Rojo,
+      ];
+    } else {
+      kpiDoughnutChart.$sinDatos = true;
+      kpiDoughnutChart.$kpiTexto = "0.0%";
+      kpiDoughnutChart.$kpiSubtexto = "Sin luz útil";
+      kpiDoughnutChart.data.labels = ["Sin luz diurna"];
+      kpiDoughnutChart.data.datasets[0].data = [1];
+      kpiDoughnutChart.data.datasets[0].backgroundColor = [COLORES.Vacio];
+    }
+    kpiDoughnutChart.update();
+  } catch (err) {
+    console.error("Error procesando historial/KPI de luminosidad:", err);
+  }
+}
+
+// ==========================================================
+// ENRUTADOR MODULAR DE TÓPICOS MQTT
+// ==========================================================
+const MODULE_HANDLERS = [
+  {
+    prefix: "campo1/edge/invernaderos/invernadero1/luminosidad/",
+    handle(topic, payload) {
+      if (topic.endsWith("/promedio")) actualizarLuminosidadLive(payload);
+      else if (topic.endsWith("/estado")) actualizarEstadoLuminosidad(payload);
+      else if (topic.endsWith("/historial")) actualizarHistorialYKpi(payload);
+    },
+  },
+  // Tus compañeros pueden registrar aquí sus módulos sin tocar Iluminación:
+  // { prefix: "campo1/edge/parcelas/maiz1/", handle(topic, payload) { ... } },
+  // { prefix: "campo1/edge/parcelas/parcela1/", handle(topic, payload) { ... } },
+];
+
+// ==========================================================
+// CONEXIÓN MQTT.JS SOBRE WEBSOCKETS
+// ==========================================================
+function setStatus(text, cssClass) {
+  const pill = document.getElementById("mqtt-status");
+  pill.textContent = text;
+  pill.className = `status-pill ${cssClass}`;
+}
+
+function conectarMQTT() {
+  const client = mqtt.connect(MQTT_CONFIG.url, MQTT_CONFIG.options);
+
+  client.on("connect", () => {
+    setStatus("Conectado (WS :15675)", "status-connected");
+    client.subscribe(MQTT_CONFIG.topics.iluminacion, { qos: 1 }, (err) => {
+      if (!err) {
+        // Solicita al Edge el historial + KPI del día inmediatamente al conectar
+        client.publish(MQTT_CONFIG.topics.requestHistorial, "solicitud", { qos: 1 });
+      }
+    });
+  });
+
+  client.on("message", (topic, messageBuffer) => {
+    const payload = messageBuffer.toString("utf-8");
+    document.getElementById("last-update").textContent =
+      `Último dato: ${new Date().toLocaleTimeString()}`;
+
+    for (const handler of MODULE_HANDLERS) {
+      if (topic.startsWith(handler.prefix)) {
+        handler.handle(topic, payload);
+      }
+    }
+  });
+
+  client.on("reconnect", () => setStatus("Reconectando...", "status-connecting"));
+  client.on("offline", () => setStatus("Desconectado", "status-error"));
+  client.on("error", (err) => {
+    console.error("Error MQTT WebSocket:", err);
+    setStatus("Error de conexión WS", "status-error");
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  inicializarGraficas();
+  conectarMQTT();
+});
+

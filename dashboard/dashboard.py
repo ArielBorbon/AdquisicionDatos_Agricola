@@ -355,7 +355,8 @@ class DashboardAgricola:
 
     def renderizar_grafica_historica(self, payload):
         try:
-            datos_json = json.loads(payload)
+            datos_crudos = json.loads(payload)
+            datos_json = datos_crudos.get("serie", datos_crudos) if isinstance(datos_crudos, dict) else {}
             if not datos_json: 
                 self.linea_grafica.set_data([], [])
                 self.ax.set_xticks([])
