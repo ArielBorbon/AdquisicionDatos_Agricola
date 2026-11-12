@@ -329,7 +329,10 @@ class DashboardAgricola:
             g["canvas"].draw_idle()
 
     def configurar_mqtt(self):
-        self.cliente_mqtt = mqtt.Client(client_id=ID_CLIENTE, callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
+        client_kwargs = {"client_id": ID_CLIENTE}
+        if hasattr(mqtt, "CallbackAPIVersion"):
+            client_kwargs["callback_api_version"] = mqtt.CallbackAPIVersion.VERSION2
+        self.cliente_mqtt = mqtt.Client(**client_kwargs)
         self.cliente_mqtt.username_pw_set(username=MQTT_USER, password=MQTT_PASSWORD)
         self.cliente_mqtt.on_connect = self.on_connect
         self.cliente_mqtt.on_message = self.on_message
