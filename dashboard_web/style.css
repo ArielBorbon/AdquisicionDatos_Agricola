@@ -237,7 +237,25 @@ body {
   gap: 6px;
 }
 
+.texto-peligro {
+  color: var(--rojo);
+  font-weight: 600;
+}
+
 /* KPI Sections & Tarjetas de Suelo */
+.kpi-section {
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid transparent;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
+}
+
+.alerta-kpi-container {
+  border-color: rgba(220, 38, 38, 0.4);
+  background-color: rgba(254, 242, 242, 0.55);
+  box-shadow: 0 4px 14px rgb(255, 0, 0);
+}
+
 .section-title-row {
   display: flex;
   justify-content: space-between;

@@ -43,6 +43,7 @@ const kpiCenterTextPlugin = {
     const { ctx } = chart;
     const kpiTexto = chart.$kpiTexto ?? "-- %";
     const kpiSubtexto = chart.$kpiSubtexto ?? "Eficiencia";
+    const kpiColor = chart.$kpiColor ?? "#0f172a";
 
     ctx.save();
     ctx.textAlign = "center";
@@ -50,7 +51,7 @@ const kpiCenterTextPlugin = {
 
     const mainFontSize = Math.max(20, Math.round(innerRadius * 0.42));
     ctx.font = `800 ${mainFontSize}px "Segoe UI", system-ui, sans-serif`;
-    ctx.fillStyle = "#0f172a";
+    ctx.fillStyle = kpiColor;
     ctx.fillText(kpiTexto, x, y - mainFontSize * 0.16);
 
     const subFontSize = Math.max(11, Math.round(innerRadius * 0.16));
@@ -112,6 +113,7 @@ function inicializarGraficas() {
   });
   kpiDoughnutChart.$kpiTexto = "-- %";
   kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
+  kpiDoughnutChart.$kpiColor = "#0f172a";
   kpiDoughnutChart.$sinDatos = true;
 
   // 2. Tendencia de Iluminación (LDR)
@@ -300,12 +302,19 @@ function actualizarEstadoLuminosidad(payload) {
   badge.textContent = color.toUpperCase();
   badge.className = `state-badge state-${color.toLowerCase()}`;
 
-  document.getElementById("lum-fisio").textContent = fisiologia;
+  const lumFisio = document.getElementById("lum-fisio");
+  lumFisio.textContent = fisiologia;
+  if (color.trim() === "Rojo") {
+    lumFisio.classList.add("texto-peligro");
+  } else {
+    lumFisio.classList.remove("texto-peligro");
+  }
   document.getElementById("lum-accion").textContent = accion;
 }
 
 function actualizarHistorialYKpi(payload) {
   try {
+    const UMBRAL_EFICIENCIA = 70.0;
     const data = JSON.parse(payload);
     const serie = data.serie && typeof data.serie === "object" ? data.serie : data;
     const kpi = data.kpi || calcularKpiFallback(serie);
@@ -331,17 +340,31 @@ function actualizarHistorialYKpi(payload) {
     document.getElementById("count-rojo").textContent = `${conteo.Rojo} (${prop.Rojo}%)`;
     document.getElementById("count-gris").textContent = `${conteo.Gris}`;
 
+    const kpiContainer = document.querySelector("#modulo-iluminacion .kpi-section");
+
     if (diurnas > 0) {
       kpiDoughnutChart.$sinDatos = false;
       kpiDoughnutChart.$kpiTexto = `${eficiencia.toFixed(1)}%`;
-      kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
+
+      if (eficiencia < UMBRAL_EFICIENCIA) {
+        kpiDoughnutChart.$kpiColor = COLORES.Rojo;
+        kpiDoughnutChart.$kpiSubtexto = "⚠️ Baja Eficiencia";
+        if (kpiContainer) kpiContainer.classList.add("alerta-kpi-container");
+      } else {
+        kpiDoughnutChart.$kpiColor = "#0f172a";
+        kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
+        if (kpiContainer) kpiContainer.classList.remove("alerta-kpi-container");
+      }
+
       kpiDoughnutChart.data.labels = ["Azul (Luz baja)", "Verde (Óptimo)", "Rojo (Extrema)"];
       kpiDoughnutChart.data.datasets[0].data = [prop.Azul, prop.Verde, prop.Rojo];
       kpiDoughnutChart.data.datasets[0].backgroundColor = [COLORES.Azul, COLORES.Verde, COLORES.Rojo];
     } else {
       kpiDoughnutChart.$sinDatos = true;
       kpiDoughnutChart.$kpiTexto = "0.0%";
+      kpiDoughnutChart.$kpiColor = "#0f172a";
       kpiDoughnutChart.$kpiSubtexto = "Sin luz útil";
+      if (kpiContainer) kpiContainer.classList.remove("alerta-kpi-container");
       kpiDoughnutChart.data.labels = ["Sin luz diurna"];
       kpiDoughnutChart.data.datasets[0].data = [1];
       kpiDoughnutChart.data.datasets[0].backgroundColor = [COLORES.Vacio];
