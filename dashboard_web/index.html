@@ -106,9 +106,6 @@
     </section>
 
     <!-- =======================================================
-         MÓDULO 2 (RESERVADO): CLIMA (MAÍZ 1)
-         ======================================================= -->
-    <!-- =======================================================
          MÓDULO 2 (ACTIVO): CLIMA (MAÍZ 1) - GDD
          ======================================================= -->
     <section id="modulo-clima" class="card card-active">
@@ -127,7 +124,8 @@
           <span class="chip" title="Clic en la gráfica para cambiar vista">Interactivo 🖱️</span>
         </div>
 
-        <div class="doughnut-wrapper" style="cursor: pointer;" id="gdd-chart-container" title="Clic para alternar entre GDD actual y restante">
+        <div class="doughnut-wrapper" style="cursor: pointer;" id="gdd-chart-container"
+          title="Clic para alternar entre GDD actual y restante">
           <canvas id="gdd-doughnut-chart"></canvas>
         </div>
 
@@ -176,11 +174,10 @@
         </div>
       </div>
 
-      <!-- KPI DESTACADO: Tasa de Secado y Tiempo a Marchitez -->
+      <!-- KPI DESTACADO: Tasa de Secado con Semáforo -->
       <div class="kpi-box-primary">
         <div class="kpi-header-row">
           <span class="kpi-box-label">Tasa de Secado</span>
-          <!-- Badge de Semáforo Específico de Tasa -->
           <span id="tasa-secado-badge" class="state-badge state-gris">MEDICIÓN</span>
         </div>
         <div class="kpi-box-val-group">
@@ -190,30 +187,17 @@
         <span id="tasa-secado-sub" class="kpi-box-subtext">Monitoreando tendencia...</span>
       </div>
 
-
-
-      <div class="kpi-grid-suelo">
-        <div class="kpi-box-primary">
-          <span class="kpi-box-label">Tasa de Secado</span>
-          <div class="kpi-box-val-group">
-            <strong id="tasa-secado-value" class="kpi-box-value">--</strong>
-            <span class="kpi-box-unit">% / hora</span>
-          </div>
-          <span id="tasa-secado-sub" class="kpi-box-subtext">Monitoreando tendencia...</span>
-        </div>
-
-        <div class="kpi-box-secondary">
-          <span class="kpi-box-label">Tiempo a Marchitez (&lt;30%)</span>
-          <strong id="tiempo-marchitez-value" class="kpi-box-value-sec">--</strong>
-          <span class="kpi-box-subtext">Basado en tasa actual</span>
-        </div>
+      <!-- Tiempo estimado a Marchitez -->
+      <div class="kpi-box-secondary">
+        <span class="kpi-box-label">Tiempo a Marchitez (&lt;30%)</span>
+        <strong id="tiempo-marchitez-value" class="kpi-box-value-sec">--</strong>
+        <span class="kpi-box-subtext">Basado en tasa actual</span>
       </div>
 
       <!-- Alerta de Demanda Cruzada (DPV vs Suelo) -->
       <div id="demanda-cruzada-box" class="cross-demand-box state-gris-light">
         <strong>Demanda Cruzada (Atmósfera - Suelo):</strong>
         <p id="demanda-cruzada-texto">Evaluando relación DPV / Humedad...</p>
-      </div>
       </div>
 
       <!-- Tendencia Histórica de Suelo -->
