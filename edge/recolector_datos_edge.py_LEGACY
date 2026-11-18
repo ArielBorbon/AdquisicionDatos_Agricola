@@ -1,12 +1,14 @@
 import random
 import paho.mqtt.client as mqtt  # type: ignore
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import deque
 import edge.utils.metricas_clima as metricas_clima
 import json
 import csv
 import os
 from edge_meta_data import urlServidor, puerto
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 id_cliente = "edge-gateway-principal"
 mqtt_user = "edge_node"
@@ -63,6 +65,7 @@ TOPICOS_SALIDA = {
     "dpv": "campo1/edge/parcelas/maiz1/dpv",
     "dpd": "campo1/edge/parcelas/maiz1/dpd",
     "gdd": "campo1/edge/parcelas/maiz1/gdd",
+    "gdd_historial_diario": "campo1/edge/parcelas/maiz1/gdd/historial_diario",
     "hum_suelo_prom": "campo1/edge/parcelas/parcela1/humedad_suelo/promedio",
     "hum_suelo_estado": "campo1/edge/parcelas/parcela1/humedad_suelo/estado",
     "tasa_secado": "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado",
@@ -82,22 +85,84 @@ buffers = {
 ventana_actual = None
 ventana_gdd_actual = None
 
+# Etapas fenológicas del maíz (ordenadas de mayor a menor umbral)
+ETAPAS_MAIZ = [
+    {"gdd": 1600, "nombre": "R6 - Madurez Fisiológica", "desc": "Se forma una 'capa negra' en la base del grano, cortando la conexión vascular con la planta. El maíz está listo para la cosecha."},
+    {"gdd": 1300, "nombre": "R5 - Dentado (Dent)", "desc": "El grano comienza a secarse en la parte superior, formando una hendidura o 'diente'."},
+    {"gdd": 1150, "nombre": "R4 - Masoso (Dough)", "desc": "El líquido interno se espesa y adquiere una consistencia de masa."},
+    {"gdd": 1000, "nombre": "R3 - Lechoso (Milk)", "desc": "El interior del grano se vuelve blanco y lechoso debido a la acumulación de almidón."},
+    {"gdd": 850, "nombre": "R2 - Ampolla (Blister)", "desc": "Los granos parecen pequeñas ampollas blancas llenas de un líquido transparente."},
+    {"gdd": 750, "nombre": "R1 - Floración / Sedas (Silking)", "desc": "Emergen los estigmas (pelos del elote). Ocurre la polinización. Es la etapa de mayor estrés térmico; un golpe de calor aquí causa aborto de granos."},
+    {"gdd": 650, "nombre": "VT - Espigamiento (Tasseling)", "desc": "La última rama de la espiga (flor masculina) es completamente visible. Máxima vulnerabilidad al déficit hídrico (DPV alto)."},
+    {"gdd": 450, "nombre": "V12 - Doceava hoja", "desc": "Se define el tamaño y número de granos por hilera. La demanda de agua se dispara drásticamente."},
+    {"gdd": 340, "nombre": "V9 - Novena hoja", "desc": "Rápido crecimiento del tallo. Comienza una alta demanda de nitrógeno."},
+    {"gdd": 235, "nombre": "V6 - Sexta hoja", "desc": "El punto de crecimiento sale a la superficie. Se define genéticamente el número máximo de hileras que tendrá la mazorca."},
+    {"gdd": 150, "nombre": "V3 - Tercera hoja", "desc": "El punto de crecimiento sigue bajo tierra. La planta resiste heladas ligeras."},
+    {"gdd": 65, "nombre": "VE - Emergencia", "desc": "La semilla germina y el primer coleóptilo rompe la superficie del suelo."},
+    {"gdd": 0, "nombre": "Pre-emergencia", "desc": "La semilla se encuentra bajo tierra absorbiendo humedad e iniciando la germinación."}
+]
+
+def obtener_etapa_fenologica(gdd_actual):
+    for etapa in ETAPAS_MAIZ:
+        if gdd_actual >= etapa["gdd"]:
+            return {"nombre": etapa["nombre"], "descripcion": etapa["desc"]}
+    return {"nombre": "Desconocida", "descripcion": "Sin datos."}
+
 # Archivos de persistencia CSV
-ARCHIVO_HISTORICO = "historico_luminosidad.csv"
-ARCHIVO_HISTORICO_SUELO = "historico_humedad_suelo.csv"
-ARCHIVO_HISTORICO_TEMP = "historico_temperatura.csv"
-ARCHIVO_HISTORICO_HUM_AIRE = "historico_humedad_aire.csv"
+ARCHIVO_HISTORICO = os.path.join(BASE_DIR, "historico_luminosidad.csv")
+ARCHIVO_HISTORICO_SUELO = os.path.join(BASE_DIR, "historico_humedad_suelo.csv")
+ARCHIVO_HISTORICO_TEMP = os.path.join(BASE_DIR, "historico_temperatura.csv")
+ARCHIVO_HISTORICO_HUM_AIRE = os.path.join(BASE_DIR, "historico_humedad_aire.csv")
+ARCHIVO_HISTORICO_GDD = os.path.join(BASE_DIR, "historico_gdd.csv")
+
+TEMP_MEDIA_MENSUAL = {
+    1: 17.0, 2: 18.0, 3: 20.0, 4: 23.0,
+    5: 27.0, 6: 30.0, 7: 31.0, 8: 31.0,
+    9: 30.0, 10: 27.0, 11: 22.0, 12: 17.0
+}
+TEMP_BASE_MAIZ = 10.0
 
 # Buffers de Iluminación
 buffer_lum_30m = []
 ventana_30m_actual = None
 ultimo_despacho_grafica = None
 
+def inicializar_gdd_historico():
+    gdd_objetivo = random.choice([
+        random.randint(0, 65), random.randint(65, 150), random.randint(150, 235),
+        random.randint(235, 340), random.randint(340, 450), random.randint(450, 650),
+        random.randint(650, 750), random.randint(750, 850), random.randint(850, 1000),
+        random.randint(1000, 1150), random.randint(1150, 1300), random.randint(1300, 1600)
+    ])
+    if os.path.exists(ARCHIVO_HISTORICO_GDD):
+        os.remove(ARCHIVO_HISTORICO_GDD)
+    fecha_actual = datetime.now()
+    fecha_simulacion = fecha_actual - timedelta(days=1)
+    gdd_acumulado_inverso = 0.0
+    historial_inverso = []
+    while gdd_acumulado_inverso < gdd_objetivo:
+        mes = fecha_simulacion.month
+        t_promedio_dia = TEMP_MEDIA_MENSUAL[mes] + random.uniform(-2.0, 2.0)
+        gdd_diario = max(0, t_promedio_dia - TEMP_BASE_MAIZ)
+        gdd_acumulado_inverso += gdd_diario
+        historial_inverso.append({
+            "Fecha": fecha_simulacion.strftime("%Y-%m-%d"),
+            "GDD": round(gdd_diario, 2)
+        })
+        fecha_simulacion -= timedelta(days=1)
+    historial_cronologico = list(reversed(historial_inverso))
+    acumulado_real = 0.0
+    with open(ARCHIVO_HISTORICO_GDD, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Fecha", "GDD", "GDD_Acumulado"])
+        for registro in historial_cronologico:
+            acumulado_real += registro["GDD"]
+            writer.writerow([registro["Fecha"], registro["GDD"], round(acumulado_real, 2)])
+    return acumulado_real
+
 # Acumuladores de Clima
-gdd_acumulado = random.choice([
-    random.randint(0, 65), random.randint(65, 150), random.randint(150, 235),
-    random.randint(235, 340), random.randint(340, 450), random.randint(450, 650)
-])
+gdd_acumulado = inicializar_gdd_historico()
+gdd_acumulado_anterior = gdd_acumulado
 ultimo_dpv = None  # Almacena el DPV más reciente para la demanda cruzada
 
 # Buffers de Suelo
@@ -346,15 +411,35 @@ def manejar_suelo(cliente, dt_mensaje, valor):
         ventana_suelo_hist_actual = ventana_h
     buffer_suelo_hist.append(valor)
 
+def despachar_gdd_actual(cliente):
+    etapa_actual = obtener_etapa_fenologica(gdd_acumulado)
+    payload_gdd = {
+        "gdd_acumulado": round(gdd_acumulado, 2),
+        "etapa_crecimiento": etapa_actual
+    }
+    cliente.publish(TOPICOS_SALIDA["gdd"], json.dumps(payload_gdd), qos=1)
+
+def despachar_historial_gdd_diario(cliente):
+    if not os.path.exists(ARCHIVO_HISTORICO_GDD):
+        return
+    historial_diario = {}
+    with open(ARCHIVO_HISTORICO_GDD, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            fecha = row["Fecha"]
+            historial_diario[fecha] = float(row["GDD_Acumulado"])
+    serie_gdd = [{"fecha": f, "gdd_acumulado": v} for f, v in historial_diario.items()]
+    cliente.publish(TOPICOS_SALIDA["gdd_historial_diario"], json.dumps(serie_gdd), qos=1)
+
 # ==========================================================
 # GESTOR MQTT Y PROCESAMIENTO PRINCIPAL
 # ==========================================================
 def on_connect(cliente, userdata, flags, reason_code, properties=None):
-    print(f"Edge conectado al broker MQTT con código: {reason_code}")
+    print(f"Edge conectado al broker MQTT (RabbitMQ :1883) con código: {reason_code}")
     cliente.subscribe(TOPICOS_ENTRADA)
 
 def on_message(cliente, userdata, message):
-    global buffers, ventana_actual, ventana_gdd_actual, buffer_lum_30m, ventana_30m_actual, ultimo_despacho_grafica
+    global buffers, ventana_actual, ventana_gdd_actual, buffer_lum_30m, ventana_30m_actual, ultimo_despacho_grafica, gdd_acumulado_anterior
     
     payload = message.payload.decode('utf-8')
     topico = message.topic
@@ -365,6 +450,8 @@ def on_message(cliente, userdata, message):
         ahora = datetime.now()
         despachar_historial_hoy(cliente, ahora)
         despachar_historial_suelo(cliente, ahora)
+        despachar_gdd_actual(cliente)
+        despachar_historial_gdd_diario(cliente)
         return
 
     # Lectura del payload (Fecha/Hora + Valor)
@@ -427,7 +514,13 @@ def on_message(cliente, userdata, message):
         ventana_actual = ventana_mensaje
         
     if ventana_gdd_mensaje > ventana_gdd_actual:
-        cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 4)), qos=1)
+        gdd_generado_ventana = max(0.0, gdd_acumulado - gdd_acumulado_anterior)
+        fecha_str = ventana_gdd_actual.strftime("%Y-%m-%d")
+        with open(ARCHIVO_HISTORICO_GDD, mode='a', newline='') as file:
+            csv.writer(file).writerow([fecha_str, round(gdd_generado_ventana, 4), round(gdd_acumulado, 2)])
+        despachar_gdd_actual(cliente)
+        despachar_historial_gdd_diario(cliente)
+        gdd_acumulado_anterior = gdd_acumulado
         ventana_gdd_actual = ventana_gdd_mensaje
 
     if topico in buffers:
