@@ -29,6 +29,9 @@
     </div>
   </header>
 
+  <!-- Contenedor de notificaciones Toast para alertas por correo -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
   <main class="dashboard-grid">
     <!-- =======================================================
          MÓDULO 1: INVERNADERO 1 — ILUMINACIÓN (LDR)
@@ -39,7 +42,10 @@
           <span class="module-tag">Invernadero 1</span>
           <h2>Iluminación (LDR)</h2>
         </div>
-        <span id="lum-badge" class="state-badge state-gris">ESPERANDO</span>
+        <div class="header-badges">
+          <span id="email-badge-iluminacion" class="email-alert-pill hidden">📧 Alerta enviada por correo</span>
+          <span id="lum-badge" class="state-badge state-gris">ESPERANDO</span>
+        </div>
       </div>
 
       <!-- Lectura en vivo y diagnóstico -->
@@ -114,7 +120,10 @@
           <span class="module-tag">Parcela: Maíz 1</span>
           <h2>Grados Día de Desarrollo (GDD)</h2>
         </div>
-        <span id="gdd-badge" class="state-badge state-verde">ACTIVO</span>
+        <div class="header-badges">
+          <span id="email-badge-clima_gdd" class="email-alert-pill hidden">📧 Alerta enviada por correo</span>
+          <span id="gdd-badge" class="state-badge state-verde">ACTIVO</span>
+        </div>
       </div>
 
       <!-- KPI: Gráfica Circular de GDD -->
@@ -132,6 +141,22 @@
         <div class="diagnostic-box" style="margin-top: 10px;">
           <p><strong>Etapa Actual:</strong> <span id="gdd-etapa-nombre">Esperando datos...</span></p>
           <p><strong>Descripción:</strong> <span id="gdd-etapa-desc">--</span></p>
+        </div>
+
+        <!-- Indicadores Climáticos Asociados (DPV / DPD / Temp) -->
+        <div class="clima-mini-metrics">
+          <div class="clima-mini-item">
+            <span class="clima-mini-label">DPV Atmosférico</span>
+            <strong id="clima-dpv-val">-- kPa</strong>
+          </div>
+          <div class="clima-mini-item">
+            <span class="clima-mini-label">DPD (Rocío)</span>
+            <strong id="clima-dpd-val">-- °C</strong>
+          </div>
+          <div class="clima-mini-item">
+            <span class="clima-mini-label">Temp / Hum Aire</span>
+            <strong id="clima-temp-hum-val">-- °C / -- %</strong>
+          </div>
         </div>
       </div>
 
@@ -155,7 +180,10 @@
           <span class="module-tag">Parcela 1</span>
           <h2>Humedad de Suelo</h2>
         </div>
-        <span id="suelo-badge" class="state-badge state-gris">ESPERANDO</span>
+        <div class="header-badges">
+          <span id="email-badge-humedad_suelo" class="email-alert-pill hidden">📧 Alerta enviada por correo</span>
+          <span id="suelo-badge" class="state-badge state-gris">ESPERANDO</span>
+        </div>
       </div>
 
       <!-- Lectura en vivo y diagnóstico -->
@@ -189,7 +217,10 @@
 
       <!-- Tiempo estimado a Marchitez -->
       <div class="kpi-box-secondary">
-        <span class="kpi-box-label">Tiempo a Marchitez (&lt;30%)</span>
+        <div class="kpi-header-row">
+          <span class="kpi-box-label">Tiempo a Marchitez (&lt;30%)</span>
+          <span id="suelo-marchitez-chip" class="chip">ETA: --</span>
+        </div>
         <strong id="tiempo-marchitez-value" class="kpi-box-value-sec">--</strong>
         <span class="kpi-box-subtext">Basado en tasa actual</span>
       </div>

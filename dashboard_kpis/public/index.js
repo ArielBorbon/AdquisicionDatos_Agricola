@@ -29,6 +29,122 @@ const COLORES = {
   Vacio: "#e2e8f0",
 };
 
+// Estado en vivo cacheado para enriquecer el contexto de las alertas
+const estadoLive = {
+  luminosidadPct: null,
+  sueloHumedadPct: null,
+  sueloTasa: null,
+  sueloEtaTexto: null,
+  climaTemp: null,
+  climaHumAire: null,
+  climaDpv: null,
+  climaDpd: null,
+  gddAcumulado: null,
+  gddEtapa: null,
+};
+
+// ==========================================================
+// CLIENTE DE ALERTAS POR CORREO ELECTRÓNICO (EMAIL API)
+// ==========================================================
+const SEVERIDAD_CLIENTE = { Gris: 1, Verde: 0, Azul: 2, Amarillo: 2, Rojo: 3 };
+const controlEnvioCliente = {}; // Evita ráfagas HTTP idénticas cada 2s por (kpi:subtipo)
+const DEBOUNCE_HTTP_MS = 30 * 1000;
+
+function mostrarToast(mensaje, nivel = "Verde") {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
+
+  const toast = document.createElement("div");
+  const claseNivel = `toast-${String(nivel).toLowerCase()}`;
+  toast.className = `toast-item ${claseNivel}`;
+  toast.textContent = mensaje;
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.remove();
+  }, 6000);
+}
+
+function actualizarBadgeCorreo(kpi, estado, texto) {
+  const badge = document.getElementById(`email-badge-${kpi}`);
+  if (!badge) return;
+
+  badge.classList.remove("hidden", "pill-cooldown", "pill-unconfigured");
+  if (estado === "cooldown") {
+    badge.classList.add("pill-cooldown");
+  } else if (estado === "unconfigured") {
+    badge.classList.add("pill-unconfigured");
+  }
+  badge.textContent = texto;
+}
+
+async function dispararAlertaEmail({
+  kpi,
+  subtipo = "general",
+  zona,
+  nivel,
+  valor,
+  diagnostico,
+  accion,
+}) {
+  const ahora = Date.now();
+  const sevActual = SEVERIDAD_CLIENTE[nivel] ?? 2;
+  const clave = `${kpi}:${subtipo}`;
+  const ultimo = controlEnvioCliente[clave];
+
+  // Si ya enviamos este mismo (kpi + subtipo) en el mismo nivel hace menos de 30s, evitamos saturar fetch
+  if (
+    ultimo &&
+    ahora - ultimo.ts < DEBOUNCE_HTTP_MS &&
+    ultimo.nivel === nivel &&
+    sevActual <= ultimo.severidad
+  ) {
+    return;
+  }
+
+  controlEnvioCliente[clave] = { ts: ahora, severidad: sevActual, nivel };
+
+  const payload = {
+    kpi,
+    subtipo,
+    zona,
+    nivel,
+    valor,
+    diagnostico,
+    accion,
+    timestamp: new Date().toLocaleString("es-MX"),
+  };
+
+  try {
+    const resp = await fetch("/api/alertas/email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await resp.json();
+    const horaCorta = new Date().toLocaleTimeString();
+
+    if (data.sent) {
+      actualizarBadgeCorreo(kpi, "sent", `Alerta enviada (${horaCorta})`);
+      mostrarToast(
+        `Correo enviado [${kpi.toUpperCase()} · ${nivel}]: ${valor} -> ${data.recipients || ""}`,
+        nivel
+      );
+    } else if (data.throttled) {
+      actualizarBadgeCorreo(kpi, "cooldown", `Alerta enviada (en enfriamiento)`);
+    } else if (data.code === "SMTP_NOT_CONFIGURED") {
+      actualizarBadgeCorreo(kpi, "unconfigured", `⚠️ Riesgo detectado (configura .env)`);
+      if (!ultimo?.avisoConfigMostrado) {
+        mostrarToast(`⚠️ Alerta detectada en ${zona}, pero faltan credenciales SMTP en .env`, "Amarillo");
+        controlEnvioCliente[clave].avisoConfigMostrado = true;
+      }
+    }
+  } catch (err) {
+    console.error("Error comunicando con /api/alertas/email:", err);
+  }
+}
+
 // ==========================================================
 // PLUGIN CHART.JS v4: TEXTO CENTRAL EN GRÁFICA DE DONA
 // ==========================================================
@@ -183,7 +299,7 @@ function inicializarGraficas() {
     data: {
       labels: ["GDD Acumulado", "GDD Faltante"],
       datasets: [{
-        data: [0, 1600], // 1600 es el umbral de R6 (Madurez)
+        data: [0, 1600],
         backgroundColor: [COLORES.Verde, COLORES.Vacio],
         borderWidth: 0,
         hoverOffset: 4,
@@ -207,7 +323,6 @@ function inicializarGraficas() {
   window.gddCurrentVal = 0;
   window.gddVistaFaltante = false;
 
-  // Interactividad: Clic para voltear el valor (GDD Actual vs Faltante)
   document.getElementById("gdd-chart-container").addEventListener("click", () => {
     window.gddVistaFaltante = !window.gddVistaFaltante;
     if (window.gddVistaFaltante) {
@@ -230,7 +345,7 @@ function inicializarGraficas() {
       datasets: [{
         label: "GDD Acumulado",
         data: [],
-        borderColor: "#16a34a", // Verde estilo banano
+        borderColor: "#16a34a",
         backgroundColor: "rgba(22, 163, 74, 0.0)",
         borderWidth: 3,
         pointRadius: 4,
@@ -243,7 +358,7 @@ function inicializarGraficas() {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        y: { min: 0, title: { display: true, text: 'GDD' } },
+        y: { min: 0, title: { display: true, text: "GDD" } },
         x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
       },
       plugins: { legend: { display: false } },
@@ -252,7 +367,7 @@ function inicializarGraficas() {
 }
 
 // ==========================================================
-// LÓGICA DEL MÓDULO: INVERNADERO 1 (ILUMINACIÓN)
+// KPI 1: MÓDULO INVERNADERO 1 (ILUMINACIÓN - LDR)
 // ==========================================================
 function clasificarLuminosidadJS(valor) {
   if (valor <= 20) return "Gris";
@@ -285,6 +400,7 @@ function actualizarLuminosidadLive(payload) {
   if (Number.isNaN(valor)) return;
 
   const clamped = Math.max(0, Math.min(100, valor));
+  estadoLive.luminosidadPct = clamped;
   const colorKey = clasificarLuminosidadJS(clamped);
 
   document.getElementById("lum-live-value").textContent = `${clamped.toFixed(2)} %`;
@@ -297,19 +413,60 @@ function actualizarEstadoLuminosidad(payload) {
   const partes = payload.split("|");
   if (partes.length < 3) return;
 
-  const [color, fisiologia, accion] = partes;
+  const [colorRaw, fisiologia, accion] = partes;
+  const color = colorRaw.trim();
   const badge = document.getElementById("lum-badge");
   badge.textContent = color.toUpperCase();
   badge.className = `state-badge state-${color.toLowerCase()}`;
 
   const lumFisio = document.getElementById("lum-fisio");
   lumFisio.textContent = fisiologia;
-  if (color.trim() === "Rojo") {
+  if (color === "Rojo") {
     lumFisio.classList.add("texto-peligro");
   } else {
     lumFisio.classList.remove("texto-peligro");
   }
   document.getElementById("lum-accion").textContent = accion;
+
+  const valPct =
+    estadoLive.luminosidadPct !== null ? `${estadoLive.luminosidadPct.toFixed(2)} %` : "-- %";
+
+  // Regla 1A: Radiación extrema (> 85%, Estado Rojo)
+  if (color === "Rojo") {
+    dispararAlertaEmail({
+      kpi: "iluminacion",
+      subtipo: "estres_luminico",
+      zona: "Invernadero 1",
+      nivel: "Rojo",
+      valor: `Luminosidad: ${valPct} (Radiación Extrema > 85%)`,
+      diagnostico: `${fisiologia} Riesgo agudo de fotoinhibición y estrés térmico foliar.`,
+      accion,
+    });
+  }
+  // Regla 1B: Luz baja (21% - 50%, Estado Azul)
+  else if (color === "Azul") {
+    dispararAlertaEmail({
+      kpi: "iluminacion",
+      subtipo: "estres_luminico",
+      zona: "Invernadero 1",
+      nivel: "Azul",
+      valor: `Luminosidad: ${valPct} (Luz Baja 21–50%)`,
+      diagnostico: `${fisiologia} Radiación fotosintéticamente activa insuficiente para el potencial del cultivo.`,
+      accion,
+    });
+  }
+  // Regla 1C: Fotosíntesis mínima o nula (<= 20%, Estado Gris)
+  else if (color === "Gris") {
+    dispararAlertaEmail({
+      kpi: "iluminacion",
+      subtipo: "estres_luminico",
+      zona: "Invernadero 1",
+      nivel: "Amarillo",
+      valor: `Luminosidad: ${valPct} (Oscuridad / Fotosíntesis Nula <= 20%)`,
+      diagnostico: `${fisiologia}`,
+      accion,
+    });
+  }
 }
 
 function actualizarHistorialYKpi(payload) {
@@ -350,6 +507,22 @@ function actualizarHistorialYKpi(payload) {
         kpiDoughnutChart.$kpiColor = COLORES.Rojo;
         kpiDoughnutChart.$kpiSubtexto = "⚠️ Baja Eficiencia";
         if (kpiContainer) kpiContainer.classList.add("alerta-kpi-container");
+
+        // Regla 1D: Eficiencia Fotosintética Diaria < 70%
+        const ventanasRiesgo = (conteo.Rojo || 0) + (conteo.Azul || 0);
+        const nivelKpi = conteo.Rojo > 0 || eficiencia < 50 ? "Rojo" : "Amarillo";
+        dispararAlertaEmail({
+          kpi: "iluminacion",
+          subtipo: "eficiencia_fotosintetica_diaria",
+          zona: "Invernadero 1",
+          nivel: nivelKpi,
+          valor: `Eficiencia Diaria: ${eficiencia.toFixed(1)}% (< 70%) | Rojas: ${conteo.Rojo}, Azules: ${conteo.Azul}`,
+          diagnostico: `El Índice de Eficiencia Fotosintética Diaria cayó a ${eficiencia.toFixed(1)}% con ${ventanasRiesgo} ventanas diurnas fuera del rango óptimo (51–85%).`,
+          accion:
+            conteo.Rojo >= conteo.Azul
+              ? "Desplegar malla sombra al 30%-50% para mitigar exceso de radiación acumulada."
+              : "Retirar mallas sombra y verificar posibles obstrucciones de luz en el invernadero.",
+        });
       } else {
         kpiDoughnutChart.$kpiColor = "#0f172a";
         kpiDoughnutChart.$kpiSubtexto = "Eficiencia";
@@ -376,7 +549,7 @@ function actualizarHistorialYKpi(payload) {
 }
 
 // ==========================================================
-// LÓGICA DEL MÓDULO: PARCELA 1 (HUMEDAD DE SUELO & TASA DE SECADO)
+// KPI 3: MÓDULO PARCELA 1 (HUMEDAD DE SUELO & TASA DE SECADO)
 // ==========================================================
 function clasificarSueloJS(valor) {
   if (valor >= 80) return "Azul";
@@ -385,11 +558,23 @@ function clasificarSueloJS(valor) {
   return "Rojo";
 }
 
+function parsearHorasMarchitez(textoEta) {
+  if (!textoEta || typeof textoEta !== "string") return null;
+  const limpio = textoEta.trim().toLowerCase();
+  if (limpio.includes("ahora mismo")) return 0;
+  const matchMin = limpio.match(/([\d.]+)\s*min/);
+  if (matchMin) return Number.parseFloat(matchMin[1]) / 60.0;
+  const matchHoras = limpio.match(/([\d.]+)\s*h/);
+  if (matchHoras) return Number.parseFloat(matchHoras[1]);
+  return null;
+}
+
 function actualizarSueloLive(payload) {
   const valor = Number.parseFloat(payload);
   if (Number.isNaN(valor)) return;
 
   const clamped = Math.max(0, Math.min(100, valor));
+  estadoLive.sueloHumedadPct = clamped;
   const colorKey = clasificarSueloJS(clamped);
 
   document.getElementById("suelo-live-value").textContent = `${clamped.toFixed(1)} %`;
@@ -402,13 +587,52 @@ function actualizarEstadoSuelo(payload) {
   const partes = payload.split("|");
   if (partes.length < 3) return;
 
-  const [color, fisiologia, accion] = partes;
+  const [colorRaw, fisiologia, accion] = partes;
+  const color = colorRaw.trim();
   const badge = document.getElementById("suelo-badge");
   badge.textContent = color.toUpperCase();
   badge.className = `state-badge state-${color.toLowerCase()}`;
 
   document.getElementById("suelo-fisio").textContent = fisiologia;
   document.getElementById("suelo-accion").textContent = accion;
+
+  const humTxt =
+    estadoLive.sueloHumedadPct !== null
+      ? `${estadoLive.sueloHumedadPct.toFixed(1)} % VWC`
+      : `Estado ${color}`;
+
+  // Regla 3A: Suelo en Rojo (Marchitez < 30%), Azul (Saturación / Planta ahogándose >= 80%) o Amarillo (Estrés Leve 30-49%)
+  if (color === "Rojo") {
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "estado_humedad_suelo",
+      zona: "Parcela 1",
+      nivel: "Rojo",
+      valor: `Humedad Suelo: ${humTxt} (Punto de Marchitez < 30%)`,
+      diagnostico: `${fisiologia} Déficit hídrico severo en zona radicular.`,
+      accion,
+    });
+  } else if (color === "Azul") {
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "estado_humedad_suelo",
+      zona: "Parcela 1",
+      nivel: "Azul",
+      valor: `Humedad Suelo: ${humTxt} (Saturación >= 80% — Riesgo de Ahogamiento)`,
+      diagnostico: `${fisiologia} El exceso de agua desplaza el oxígeno del suelo; la planta se está ahogando (asfixia radicular y peligro de pudrición).`,
+      accion,
+    });
+  } else if (color === "Amarillo") {
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "estado_humedad_suelo",
+      zona: "Parcela 1",
+      nivel: "Amarillo",
+      valor: `Humedad Suelo: ${humTxt} (Estrés Hídrico Leve 30–49%)`,
+      diagnostico: `${fisiologia}`,
+      accion,
+    });
+  }
 }
 
 function actualizarTasaSecado(payload) {
@@ -427,6 +651,7 @@ function actualizarTasaSecado(payload) {
     return;
   }
 
+  estadoLive.sueloTasa = tasa;
   elValue.textContent = (tasa > 0 ? "+" : "") + tasa.toFixed(2);
 
   if (tasa > 1.5) {
@@ -437,6 +662,19 @@ function actualizarTasaSecado(payload) {
       elBadge.textContent = "SECADO RÁPIDO";
       elBadge.className = "state-badge state-rojo";
     }
+
+    // Regla 3B-1: Tasa de Secado muy alta (> 1.5 %/hora -> SECADO RÁPIDO)
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "tasa_secado",
+      zona: "Parcela 1",
+      nivel: "Rojo",
+      valor: `Tasa de Secado: +${tasa.toFixed(2)} %/hora (SECADO RÁPIDO > 1.5 %/h)`,
+      diagnostico:
+        "La tasa de secado del suelo es críticamente alta (> 1.5 %/hora). Pérdida acelerada de humedad en la raíz.",
+      accion:
+        "Activar riego preventivo de inmediato y verificar la demanda evaporativa (DPV).",
+    });
   } else if (tasa > 0.3) {
     // Secado Moderado -> Semáforo AMARILLO
     elSub.textContent = "Pérdida hídrica constante";
@@ -445,6 +683,18 @@ function actualizarTasaSecado(payload) {
       elBadge.textContent = "SECADO NORMAL";
       elBadge.className = "state-badge state-amarillo";
     }
+
+    // Regla 3B-2: Tasa de Secado moderada (0.3 a 1.5 %/hora)
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "tasa_secado",
+      zona: "Parcela 1",
+      nivel: "Amarillo",
+      valor: `Tasa de Secado: +${tasa.toFixed(2)} %/hora (Pérdida Constante)`,
+      diagnostico:
+        "El suelo presenta una pérdida de humedad continua (> 0.3 %/hora). Monitorear evolución hacia el punto de marchitez.",
+      accion: "Programar próximo turno de riego en Parcela 1.",
+    });
   } else if (tasa >= -0.3 && tasa <= 0.3) {
     // Estable -> Semáforo VERDE
     elSub.textContent = "Humedad estable en raíz";
@@ -454,29 +704,88 @@ function actualizarTasaSecado(payload) {
       elBadge.className = "state-badge state-verde";
     }
   } else {
-    // Ganancia de Agua (Riego / Lluvia) -> Semáforo AZUL
-    elSub.textContent = "Absorción de humedad (Riego/Lluvia)";
+    // Ganancia de Agua / Tasa Negativa (< -0.3 %/h) -> Semáforo AZUL
+    elSub.textContent = "Absorción rápida / Exceso hídrico (Riesgo asfixia)";
     elSub.style.color = "#2563eb";
     if (elBadge) {
-      elBadge.textContent = "RECUPERACIÓN";
+      elBadge.textContent = "EXCESO / RIEGO";
       elBadge.className = "state-badge state-azul";
     }
+
+    // Regla 3B-3: Tasa de Secado muy baja / negativa (< -0.3 %/hora -> Exceso de agua / Planta ahogándose)
+    const humActual =
+      estadoLive.sueloHumedadPct !== null ? `${estadoLive.sueloHumedadPct.toFixed(1)}% VWC` : "--";
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "tasa_secado",
+      zona: "Parcela 1",
+      nivel: "Azul",
+      valor: `Tasa de Secado: ${tasa.toFixed(2)} %/hora (Acumulación Hídrica | Humedad: ${humActual})`,
+      diagnostico:
+        "Tasa de secado negativa por ingreso acelerado de agua. Existe riesgo de saturación del suelo y asfixia radicular (la planta puede ahogarse por falta de oxígeno en la raíz).",
+      accion:
+        "Verificar si el riego sigue abierto, cerrar válvulas si se superó Capacidad de Campo y vigilar el drenaje.",
+    });
   }
 }
 
 function actualizarTiempoMarchitez(payload) {
-  document.getElementById("tiempo-marchitez-value").textContent = payload;
-  document.getElementById("suelo-marchitez-chip").textContent = `ETA: ${payload}`;
+  estadoLive.sueloEtaTexto = payload;
+  const elVal = document.getElementById("tiempo-marchitez-value");
+  if (elVal) elVal.textContent = payload;
+  const elChip = document.getElementById("suelo-marchitez-chip");
+  if (elChip) elChip.textContent = `ETA: ${payload}`;
+
+  // Regla 3C: Tiempo Estimado a Marchitez (ETA) <= 2h (Rojo) o <= 6h (Amarillo)
+  const horasEta = parsearHorasMarchitez(payload);
+  if (horasEta !== null && horasEta <= 2.0) {
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "tiempo_marchitez_eta",
+      zona: "Parcela 1",
+      nivel: "Rojo",
+      valor: `ETA a Marchitez: ${payload} (Crítico <= 2 horas)`,
+      diagnostico: `Al ritmo de secado actual, la humedad del suelo caerá al Punto de Marchitez (< 30%) en ${payload}.`,
+      accion: "Iniciar riego de emergencia inmediatamente en Parcela 1.",
+    });
+  } else if (horasEta !== null && horasEta <= 6.0) {
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "tiempo_marchitez_eta",
+      zona: "Parcela 1",
+      nivel: "Amarillo",
+      valor: `ETA a Marchitez: ${payload} (Preventivo <= 6 horas)`,
+      diagnostico: `Tendencia de secado activa: el suelo alcanzará el Punto de Marchitez en ${payload}.`,
+      accion: "Programar riego preventivo durante las próximas horas.",
+    });
+  }
 }
 
 function actualizarDemandaCruzada(payload) {
   const partes = payload.split("|");
   if (partes.length < 2) return;
-  const [color, mensaje] = partes;
+  const [colorRaw, mensaje] = partes;
+  const color = colorRaw.trim();
 
   const box = document.getElementById("demanda-cruzada-box");
   box.className = `cross-demand-box state-${color.toLowerCase()}-light`;
   document.getElementById("demanda-cruzada-texto").textContent = mensaje;
+
+  // Regla 3D: Demanda Cruzada en Rojo o Amarillo
+  if (color === "Rojo" || color === "Amarillo") {
+    dispararAlertaEmail({
+      kpi: "humedad_suelo",
+      subtipo: "demanda_cruzada",
+      zona: "Parcela 1",
+      nivel: color,
+      valor: `Demanda Cruzada ${color.toUpperCase()} (${estadoLive.sueloHumedadPct !== null ? estadoLive.sueloHumedadPct.toFixed(1) + "% VWC" : "--"})`,
+      diagnostico: `Relación Atmósfera (DPV) vs Suelo: ${mensaje}`,
+      accion:
+        color === "Rojo"
+          ? "Aplicar riego inmediato para contrarrestar la alta demanda evaporativa (DPV) y el secado radicular."
+          : "Vigilar humedad radicular y programar riego ante demanda atmosférica elevada.",
+    });
+  }
 }
 
 function actualizarHistorialSuelo(payload) {
@@ -503,50 +812,256 @@ function actualizarHistorialSuelo(payload) {
 }
 
 // ==========================================================
-// LÓGICA DEL MÓDULO: CLIMA MAÍZ 1 (GDD)
+// KPI 2: MÓDULO CLIMA MAÍZ 1 (GDD, DPV y DPD)
 // ==========================================================
+const ETAPAS_MAIZ_FALLBACK = [
+  { gdd: 1600, nombre: "R6 - Madurez Fisiológica", descripcion: "Se forma capa negra en la base del grano. El maíz está listo para la cosecha." },
+  { gdd: 1300, nombre: "R5 - Dentado (Dent)", descripcion: "El grano comienza a secarse en la parte superior, formando una hendidura." },
+  { gdd: 1150, nombre: "R4 - Masoso (Dough)", descripcion: "El líquido interno se espesa y adquiere consistencia de masa." },
+  { gdd: 1000, nombre: "R3 - Lechoso (Milk)", descripcion: "El interior del grano se vuelve blanco y lechoso por almidón." },
+  { gdd: 850, nombre: "R2 - Ampolla (Blister)", descripcion: "Los granos parecen pequeñas ampollas blancas." },
+  { gdd: 750, nombre: "R1 - Floración / Sedas (Silking)", descripcion: "Emergen los estigmas. Etapa de mayor estrés térmico; riesgo de aborto de granos." },
+  { gdd: 650, nombre: "VT - Espigamiento (Tasseling)", descripcion: "Espiga visible. Máxima vulnerabilidad al déficit hídrico (DPV alto)." },
+  { gdd: 450, nombre: "V12 - Doceava hoja", descripcion: "Se define el tamaño y número de granos por hilera. La demanda de agua se dispara drásticamente." },
+  { gdd: 340, nombre: "V9 - Novena hoja", descripcion: "Rápido crecimiento del tallo. Alta demanda de nitrógeno." },
+  { gdd: 235, nombre: "V6 - Sexta hoja", descripcion: "El punto de crecimiento sale a la superficie." },
+  { gdd: 150, nombre: "V3 - Tercera hoja", descripcion: "El punto de crecimiento sigue bajo tierra." },
+  { gdd: 65, nombre: "VE - Emergencia", descripcion: "La semilla germina y rompe la superficie del suelo." },
+  { gdd: 0, nombre: "Pre-emergencia", descripcion: "La semilla se encuentra bajo tierra iniciando germinación." },
+];
+
+function obtenerEtapaFallback(gdd) {
+  for (const e of ETAPAS_MAIZ_FALLBACK) {
+    if (gdd >= e.gdd) return { nombre: e.nombre, descripcion: e.descripcion };
+  }
+  return { nombre: "Pre-emergencia", descripcion: "Iniciando acumulación térmica." };
+}
+
+function evaluarRiesgoFenologicoGdd(gdd, etapa) {
+  const nombre = (etapa?.nombre || "").toUpperCase();
+  const badgeGdd = document.getElementById("gdd-badge");
+
+  // Regla 2A: Etapas fenológicas del maíz
+  if (nombre.startsWith("VT") || nombre.includes("ESPIGAMIENTO")) {
+    if (badgeGdd) {
+      badgeGdd.textContent = "ETAPA CRÍTICA (VT)";
+      badgeGdd.className = "state-badge state-rojo";
+    }
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "etapa_fenologica_gdd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Rojo",
+      valor: `${gdd.toFixed(1)} GDD — ${etapa.nombre}`,
+      diagnostico: `${etapa.descripcion} El cultivo se encuentra en su ventana de máxima sensibilidad al déficit hídrico.`,
+      accion: "Garantizar humedad de suelo en Capacidad de Campo (50%–79%) y monitorear DPV continuamente.",
+    });
+  } else if (nombre.startsWith("R1") || nombre.includes("FLORACIÓN") || nombre.includes("SILKING")) {
+    if (badgeGdd) {
+      badgeGdd.textContent = "ETAPA CRÍTICA (R1)";
+      badgeGdd.className = "state-badge state-rojo";
+    }
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "etapa_fenologica_gdd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Rojo",
+      valor: `${gdd.toFixed(1)} GDD — ${etapa.nombre}`,
+      diagnostico: `${etapa.descripcion} Riesgo crítico de aborto de granos ante golpes de calor o estrés evaporativo.`,
+      accion: "Evitar cualquier déficit hídrico durante la polinización y aplicar riegos ligeros de refrescamiento si el DPV sube.",
+    });
+  } else if (nombre.startsWith("V12") || nombre.startsWith("V9") || nombre.startsWith("V6")) {
+    if (badgeGdd) {
+      badgeGdd.textContent = `ATENCIÓN (${nombre.split(" ")[0]})`;
+      badgeGdd.className = "state-badge state-amarillo";
+    }
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "etapa_fenologica_gdd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Amarillo",
+      valor: `${gdd.toFixed(1)} GDD — ${etapa.nombre}`,
+      diagnostico: `${etapa.descripcion}`,
+      accion: "Incrementar lámina de riego y verificar disponibilidad de nitrógeno para proteger el potencial de rendimiento.",
+    });
+  } else if (nombre.startsWith("R6") || nombre.includes("MADUREZ")) {
+    if (badgeGdd) {
+      badgeGdd.textContent = "COSECHA LISTA (R6)";
+      badgeGdd.className = "state-badge state-azul";
+    }
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "etapa_fenologica_gdd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Azul",
+      valor: `${gdd.toFixed(1)} GDD — ${etapa.nombre}`,
+      diagnostico: `${etapa.descripcion}`,
+      accion: "Suspender riegos programados y coordinar logística de cosecha por madurez fisiológica completada.",
+    });
+  } else if (badgeGdd) {
+    badgeGdd.textContent = "ACTIVO";
+    badgeGdd.className = "state-badge state-verde";
+  }
+}
+
 function actualizarGddLive(payload) {
   try {
-    const data = JSON.parse(payload);
-    const gdd = data.gdd_acumulado;
-    const etapa = data.etapa_crecimiento;
+    const parsed = JSON.parse(payload);
+    let gdd = 0;
+    let etapa = null;
 
-    // Actualizar Textos
+    if (typeof parsed === "number") {
+      gdd = parsed;
+      etapa = obtenerEtapaFallback(gdd);
+    } else {
+      gdd = Number(parsed.gdd_acumulado ?? 0);
+      etapa = parsed.etapa_crecimiento || obtenerEtapaFallback(gdd);
+    }
+
+    estadoLive.gddAcumulado = gdd;
+    estadoLive.gddEtapa = etapa.nombre;
+
     document.getElementById("gdd-etapa-nombre").textContent = etapa.nombre;
     document.getElementById("gdd-etapa-desc").textContent = etapa.descripcion;
 
-    // Actualizar Gráfica Circular
     const faltante = Math.max(0, 1600 - gdd);
     window.gddCurrentVal = gdd;
-    
+
     window.gddDoughnutChart.data.datasets[0].data = [gdd, faltante];
-    
-    // Si no está en vista invertida, actualizar el texto central
+
     if (!window.gddVistaFaltante) {
       window.gddDoughnutChart.$kpiTexto = gdd.toFixed(1);
     } else {
       window.gddDoughnutChart.$kpiTexto = faltante.toFixed(1);
     }
-    
+
     window.gddDoughnutChart.update();
+
+    evaluarRiesgoFenologicoGdd(gdd, etapa);
   } catch (err) {
-    console.error("Error parseando JSON de GDD:", err);
+    console.error("Error parseando payload de GDD:", err);
   }
 }
 
 function actualizarHistorialGdd(payload) {
   try {
     const serie = JSON.parse(payload);
-    // serie es un array: [{"fecha": "2026-10-01", "gdd_acumulado": 15}, ...]
-    
-    const fechas = serie.map(item => item.fecha);
-    const valores = serie.map(item => item.gdd_acumulado);
+    const fechas = serie.map((item) => item.fecha);
+    const valores = serie.map((item) => item.gdd_acumulado);
 
     window.gddTrendChart.data.labels = fechas;
     window.gddTrendChart.data.datasets[0].data = valores;
     window.gddTrendChart.update();
   } catch (err) {
     console.error("Error parseando Historial de GDD:", err);
+  }
+}
+
+function actualizarClimaTempHum() {
+  const el = document.getElementById("clima-temp-hum-val");
+  if (!el) return;
+  const t = estadoLive.climaTemp !== null ? `${estadoLive.climaTemp.toFixed(1)} °C` : "-- °C";
+  const h = estadoLive.climaHumAire !== null ? `${estadoLive.climaHumAire.toFixed(1)} %` : "-- %";
+  el.textContent = `${t} / ${h}`;
+}
+
+function actualizarDpvClima(payload) {
+  const dpv = Number.parseFloat(payload);
+  if (Number.isNaN(dpv)) return;
+  estadoLive.climaDpv = dpv;
+
+  const elDpv = document.getElementById("clima-dpv-val");
+  if (elDpv) {
+    elDpv.textContent = `${dpv.toFixed(2)} kPa`;
+    elDpv.style.color =
+      dpv >= 2.5 ? COLORES.Rojo : dpv > 1.2 ? COLORES.Amarillo : dpv <= 0.5 ? COLORES.Azul : COLORES.Verde;
+  }
+
+  // Regla 2B: DPV Crítico (>= 2.5 kPa Rojo), Seco (> 1.2 kPa Amarillo) o Muy Húmedo (<= 0.5 kPa Azul)
+  if (dpv >= 2.5) {
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "clima_dpv",
+      zona: "Parcela: Maíz 1",
+      nivel: "Rojo",
+      valor: `DPV: ${dpv.toFixed(2)} kPa (Zona Roja >= 2.5 kPa)`,
+      diagnostico:
+        "Déficit de Presión de Vapor extremadamente alto. Atmósfera muy seca que provoca cierre estomático, detención fotosintética y estrés hídrico severo.",
+      accion:
+        "Activar riego de apoyo inmediatamente para compensar la demanda evaporativa atmosférica.",
+    });
+  } else if (dpv > 1.2) {
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "clima_dpv",
+      zona: "Parcela: Maíz 1",
+      nivel: "Amarillo",
+      valor: `DPV: ${dpv.toFixed(2)} kPa (Ambiente Seco > 1.2 kPa)`,
+      diagnostico:
+        "Ambiente más seco del rango óptimo (0.5–1.2 kPa). Incremento en la tasa de transpiración del cultivo.",
+      accion: "Vigilar humedad del suelo y preparar turno de riego preventivo.",
+    });
+  } else if (dpv <= 0.5) {
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "clima_dpv",
+      zona: "Parcela: Maíz 1",
+      nivel: "Azul",
+      valor: `DPV: ${dpv.toFixed(2)} kPa (Ambiente Saturado <= 0.5 kPa)`,
+      diagnostico:
+        "Ambiente excesivamente húmedo. La planta no puede transpirar adecuadamente (transporte deficiente de nutrientes) y existe alto riesgo de condensación y hongos.",
+      accion: "Evitar riegos adicionales y monitorear presencia de patógenos fúngicos.",
+    });
+  }
+}
+
+function actualizarDpdClima(payload) {
+  const dpd = Number.parseFloat(payload);
+  if (Number.isNaN(dpd)) return;
+  estadoLive.climaDpd = dpd;
+
+  const elDpd = document.getElementById("clima-dpd-val");
+  if (elDpd) {
+    elDpd.textContent = `${dpd.toFixed(2)} °C`;
+    elDpd.style.color =
+      dpd <= 2.0 ? COLORES.Azul : dpd <= 4.0 ? COLORES.Amarillo : dpd > 8.0 ? COLORES.Rojo : COLORES.Verde;
+  }
+
+  // Regla 2C: DPD Condensación (<= 2.0 °C Azul), Precaución (<= 4.0 °C Amarillo), Seco (> 8.0 °C Rojo)
+  if (dpd <= 2.0) {
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "clima_dpd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Azul",
+      valor: `DPD: ${dpd.toFixed(2)} °C (Condensación <= 2.0 °C)`,
+      diagnostico:
+        "Depresión del Punto de Rocío crítica (<= 2 °C). Rocío inminente sobre la hoja; alto riesgo de germinación de hongos patógenos y lavado de agroquímicos.",
+      accion:
+        "Suspender aplicaciones de agroquímicos foliares y vigilar sanidad vegetal por patógenos.",
+    });
+  } else if (dpd <= 4.0) {
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "clima_dpd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Amarillo",
+      valor: `DPD: ${dpd.toFixed(2)} °C (Precaución 2.0–4.0 °C)`,
+      diagnostico:
+        "Margen térmico estrecho hacia el punto de rocío. Riesgo de escurrimiento foliar si la temperatura desciende.",
+      accion: "Tomar precaución antes de programar aspersiones foliares.",
+    });
+  } else if (dpd > 8.0) {
+    dispararAlertaEmail({
+      kpi: "clima_gdd",
+      subtipo: "clima_dpd",
+      zona: "Parcela: Maíz 1",
+      nivel: "Rojo",
+      valor: `DPD: ${dpd.toFixed(2)} °C (Ambiente Seco > 8.0 °C)`,
+      diagnostico:
+        "Brecha térmica elevada respecto al punto de rocío. El producto agroquímico se evaporará en el aire antes de que la hoja logre absorberlo.",
+      accion: "Posponer aplicación de agroquímicos foliares hasta que mejore la humedad relativa.",
+    });
   }
 }
 
@@ -574,16 +1089,31 @@ const MODULE_HANDLERS = [
     },
   },
   {
-    prefix: "campo1/edge/parcelas/maiz1/gdd",
+    prefix: "campo1/edge/parcelas/maiz1/",
     handle(topic, payload) {
       if (topic === "campo1/edge/parcelas/maiz1/gdd") actualizarGddLive(payload);
       else if (topic.endsWith("/historial_diario")) actualizarHistorialGdd(payload);
+      else if (topic.endsWith("/dpv")) actualizarDpvClima(payload);
+      else if (topic.endsWith("/dpd")) actualizarDpdClima(payload);
+      else if (topic.endsWith("/temperatura/promedio")) {
+        const val = Number.parseFloat(payload);
+        if (!Number.isNaN(val)) {
+          estadoLive.climaTemp = val;
+          actualizarClimaTempHum();
+        }
+      } else if (topic.endsWith("/humedad_aire/promedio")) {
+        const val = Number.parseFloat(payload);
+        if (!Number.isNaN(val)) {
+          estadoLive.climaHumAire = val;
+          actualizarClimaTempHum();
+        }
+      }
     },
-  }
+  },
 ];
 
 // ==========================================================
-// CONEXIÓN MQTT.JS SOBRE WEBSOCKETS
+// CONEXIÓN MQTT.JS SOBRE WEBSOCKETS (CON FALLBACK A GUEST)
 // ==========================================================
 function setStatus(text, cssClass) {
   const pill = document.getElementById("mqtt-status");
@@ -591,17 +1121,35 @@ function setStatus(text, cssClass) {
   pill.className = `status-pill ${cssClass}`;
 }
 
-function conectarMQTT() {
-  const client = mqtt.connect(MQTT_CONFIG.url, MQTT_CONFIG.options);
+function conectarMQTT(usarGuestFallback = false) {
+  const opciones = {
+    ...MQTT_CONFIG.options,
+    clientId: "web-dashboard-" + Math.random().toString(16).slice(2, 10),
+  };
+
+  if (usarGuestFallback) {
+    opciones.username = "guest";
+    opciones.password = "guest";
+    console.warn("[MQTT] Probando conexión a RabbitMQ Web-MQTT con usuario por defecto (guest/guest)...");
+  }
+
+  const client = mqtt.connect(MQTT_CONFIG.url, opciones);
+  let conectadoAlgunaVez = false;
+  let intentosFallidos = 0;
 
   client.on("connect", () => {
-    setStatus("Conectado (WS :15675)", "status-connected");
-    // Suscripción a Iluminación y Suelo
-    client.subscribe([MQTT_CONFIG.topics.iluminacion, MQTT_CONFIG.topics.suelo, MQTT_CONFIG.topics.maiz], { qos: 1 }, (err) => {
-      if (!err) {
-        client.publish(MQTT_CONFIG.topics.requestHistorial, "solicitud", { qos: 1 });
+    conectadoAlgunaVez = true;
+    intentosFallidos = 0;
+    setStatus(`Conectado (WS :15675 · ${opciones.username})`, "status-connected");
+    client.subscribe(
+      [MQTT_CONFIG.topics.iluminacion, MQTT_CONFIG.topics.suelo, MQTT_CONFIG.topics.maiz],
+      { qos: 1 },
+      (err) => {
+        if (!err) {
+          client.publish(MQTT_CONFIG.topics.requestHistorial, "solicitud", { qos: 1 });
+        }
       }
-    });
+    );
   });
 
   client.on("message", (topic, messageBuffer) => {
@@ -616,11 +1164,34 @@ function conectarMQTT() {
     }
   });
 
-  client.on("reconnect", () => setStatus("Reconectando...", "status-connecting"));
-  client.on("offline", () => setStatus("Desconectado", "status-error"));
+  client.on("reconnect", () => {
+    intentosFallidos++;
+    if (!conectadoAlgunaVez && !usarGuestFallback && intentosFallidos >= 2) {
+      client.end(true);
+      conectarMQTT(true);
+      return;
+    }
+    setStatus(`Reconectando a WS :15675 (intento ${intentosFallidos})...`, "status-connecting");
+  });
+
+  client.on("offline", () => {
+    if (conectadoAlgunaVez) {
+      setStatus("Desconectado de RabbitMQ", "status-error");
+    }
+  });
+
   client.on("error", (err) => {
     console.error("Error MQTT WebSocket:", err);
-    setStatus("Error de conexión WS", "status-error");
+    const msg = String(err?.message || err || "");
+    if (
+      !usarGuestFallback &&
+      (msg.includes("Not authorized") || msg.includes("Bad username") || msg.includes("connack"))
+    ) {
+      client.end(true);
+      conectarMQTT(true);
+      return;
+    }
+    setStatus("Error de conexión WS (:15675)", "status-error");
   });
 }
 
