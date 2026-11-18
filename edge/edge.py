@@ -1,12 +1,20 @@
-import random
+from utils.path_csv import DATA_PATH, convertir_path
 import paho.mqtt.client as mqtt  # type: ignore
-from datetime import datetime
+import random
+from utils.metricas_clima import calcular_dpd, calcular_dpv, calcular_gdh, TEMP_BASE_MAIZ, TEMP_MEDIA_MENSUAL, gdd_random, obtener_etapa_fenologica
+from utils.metricas_luminosidad import clasificar_estado_luminosidad
+from utils.metricas_suelo import CAPACIDAD_CAMPO, MIN_PUNTOS_TASA, SALTO_RIEGO_PTS, SATURACION, UMBRAL_CAMBIO_PTS, estado_suelo_final, estimar_tiempo_marchitez, evaluar_riesgo_cruzado
+from utils.ventana import obtener_ventana_minutos, obtener_ventana_seg
+from utils.topicos import TOPICO_SUELO, TOPICO_REQUEST_HISTORIAL, TOPICOS_ENTRADA, TOPICOS_SALIDA
+from datetime import datetime, timedelta
 from collections import deque
-import temperatura_metricas
+from dotenv import load_dotenv # type: ignore
 import json
 import csv
 import os
-from edge_meta_data import urlServidor, puerto
+
+urlServidor = os.getenv("URL", "localhost")
+puerto = os.getenv("PORT", 1883)
 
 id_cliente = "edge-gateway-principal"
 mqtt_user = "edge_node"
@@ -21,58 +29,16 @@ MODO_DEMO = True
 
 if MODO_DEMO:
     VENTANA_CLIMA_SEG = 60                 # Temperatura / Humedad Aire / DPV / DPD (1 min)
-    VENTANA_GDD_SEG = 60                   # GDD (1 min)
+    VENTANA_GDD_SEG = 60 * 5               # GDD (5 min)
     VENTANA_SUELO_SEG = 15                 # Promedio + semáforo en vivo (15 s)
     VENTANA_HIST_SUELO_SEG = 60            # Fila en CSV de suelo (1 min)
     SPAN_TASA_SEG = 120                    # Ventana de tendencia para tasa de secado (2 min)
 else:
     VENTANA_CLIMA_SEG = 15 * 60            # Clima (15 min)
-    VENTANA_GDD_SEG = 60                   # GDD (1 min)
+    VENTANA_GDD_SEG = 3600                 # GDD (1 hora)
     VENTANA_SUELO_SEG = 60                 # Promedio suelo (1 min)
     VENTANA_HIST_SUELO_SEG = 30 * 60       # Fila en CSV de suelo (30 min)
     SPAN_TASA_SEG = 3600                   # Ventana de tendencia (1 hora)
-
-# ---- Umbrales de Humedad del Suelo (% VWC) ----
-PUNTO_MARCHITEZ = 30.0     # < 30 %  -> Rojo (Marchitez)
-CAPACIDAD_CAMPO = 50.0     # 50-79 % -> Verde (Óptimo)
-SATURACION = 80.0          # >= 80 % -> Azul (Asfixia radicular)
-
-# ---- Parámetros de Cálculo de Tasa y Demanda Cruzada ----
-MIN_PUNTOS_TASA = 3        # Mínimo de promedios para estimar regresión lineal
-UMBRAL_CAMBIO_PTS = 1.0    # Variación mínima (%) en SPAN_TASA para no considerar "Estable"
-DPV_DEMANDA_ALTA = 1.2     # kPa: Umbral donde el aire exige evaporación alta
-ETA_CRITICA_H = 2.0        # Horas a marchitez para disparar Alerta Roja
-ETA_ALERTA_H = 6.0         # Horas a marchitez para disparar Alerta Amarilla
-SALTO_RIEGO_PTS = 8.0      # Incremento brusco que reinicia la curva por evento de riego
-
-# Tópicos MQTT
-TOPICO_SUELO = "campo1/parcelas/parcela1/humedad/suelo"
-TOPICO_REQUEST_HISTORIAL = "campo1/dashboard/request/historial"
-
-TOPICOS_ENTRADA = [
-    ("campo1/parcelas/maiz1/temperatura/centigrados", 1),
-    ("campo1/parcelas/maiz1/humedad/aire", 1),
-    (TOPICO_SUELO, 1),
-    ("campo1/invernaderos/invernadero1/luminosidad", 1),
-    (TOPICO_REQUEST_HISTORIAL, 1)
-]
-
-TOPICOS_SALIDA = {
-    "temp_prom": "campo1/edge/parcelas/maiz1/temperatura/promedio",
-    "hum_aire_prom": "campo1/edge/parcelas/maiz1/humedad_aire/promedio",
-    "dpv": "campo1/edge/parcelas/maiz1/dpv",
-    "dpd": "campo1/edge/parcelas/maiz1/dpd",
-    "gdd": "campo1/edge/parcelas/maiz1/gdd",
-    "hum_suelo_prom": "campo1/edge/parcelas/parcela1/humedad_suelo/promedio",
-    "hum_suelo_estado": "campo1/edge/parcelas/parcela1/humedad_suelo/estado",
-    "tasa_secado": "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado",
-    "demanda_cruzada": "campo1/edge/parcelas/parcela1/humedad_suelo/demanda_cruzada",
-    "tiempo_marchitez": "campo1/edge/parcelas/parcela1/humedad_suelo/tiempo_marchitez",
-    "hum_suelo_historial": "campo1/edge/parcelas/parcela1/humedad_suelo/historial",
-    "lum_prom": "campo1/edge/invernaderos/invernadero1/luminosidad/promedio",
-    "lum_estado": "campo1/edge/invernaderos/invernadero1/luminosidad/estado",
-    "lum_historial": "campo1/edge/invernaderos/invernadero1/luminosidad/historial"
-}
 
 # Buffers de datos
 buffers = {
@@ -83,10 +49,11 @@ ventana_actual = None
 ventana_gdd_actual = None
 
 # Archivos de persistencia CSV
-ARCHIVO_HISTORICO = "historico_luminosidad.csv"
-ARCHIVO_HISTORICO_SUELO = "historico_humedad_suelo.csv"
-ARCHIVO_HISTORICO_TEMP = "historico_temperatura.csv"
-ARCHIVO_HISTORICO_HUM_AIRE = "historico_humedad_aire.csv"
+ARCHIVO_HISTORICO = convertir_path("historico_luminosidad")
+ARCHIVO_HISTORICO_SUELO = convertir_path("historico_humedad_suelo")
+ARCHIVO_HISTORICO_TEMP = convertir_path("historico_temperatura")
+ARCHIVO_HISTORICO_HUM_AIRE = convertir_path("historico_humedad_aire")
+ARCHIVO_HISTORICO_GDD = convertir_path("historico_gdd")
 
 # Buffers de Iluminación
 buffer_lum_30m = []
@@ -94,10 +61,61 @@ ventana_30m_actual = None
 ultimo_despacho_grafica = None
 
 # Acumuladores de Clima
-gdd_acumulado = random.choice([
-    random.randint(0, 65), random.randint(65, 150), random.randint(150, 235),
-    random.randint(235, 340), random.randint(340, 450), random.randint(450, 650)
-])
+def inicializar_gdd_historico():
+    # 1. Definir el GDD objetivo aleatorio (basado en los rangos fenológicos del maíz)
+    gdd_objetivo = gdd_random()
+    
+    # 2. Limpiar el historial previo en cada ejecución
+    if os.path.exists(ARCHIVO_HISTORICO_GDD):
+        os.remove(ARCHIVO_HISTORICO_GDD)
+        
+    fecha_actual = datetime.now()
+    fecha_simulacion = fecha_actual - timedelta(days=1)
+    
+    gdd_acumulado_inverso = 0.0
+    historial_inverso = []
+    
+    # 3. Viajar hacia atrás en el tiempo hasta alcanzar el GDD objetivo
+    while gdd_acumulado_inverso < gdd_objetivo:
+        mes = fecha_simulacion.month
+        
+        # Simular temperatura del día basada en la media del mes +/- 2°C de ruido natural
+        t_promedio_dia = TEMP_MEDIA_MENSUAL[mes] + random.uniform(-2.0, 2.0)
+        
+        # Calcular el GDD de ese día (fórmula: T_prom - T_base)
+        gdd_diario = max(0, t_promedio_dia - TEMP_BASE_MAIZ)
+        gdd_acumulado_inverso += gdd_diario
+        
+        # Guardar en la lista temporal
+        historial_inverso.append({
+            "Fecha": fecha_simulacion.strftime("%Y-%m-%d"),
+            "GDD": round(gdd_diario, 2)
+        })
+        
+        fecha_simulacion -= timedelta(days=1)
+        
+    # 4. Invertir la lista para que quede del registro más antiguo al más reciente
+    historial_cronologico = list(reversed(historial_inverso))
+    
+    # 5. Escribir el CSV recalculando el acumulado de forma progresiva
+    acumulado_real = 0.0
+    
+    os.makedirs(DATA_PATH, exist_ok=True)
+    with open(ARCHIVO_HISTORICO_GDD, mode='w', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Fecha", "GDD", "GDD_Acumulado"])
+        
+        for registro in historial_cronologico:
+            acumulado_real += registro["GDD"]
+            writer.writerow([registro["Fecha"], registro["GDD"], round(acumulado_real, 2)])
+            
+    print(f"[SIMULACIÓN] Historial GDD generado. Objetivo: {gdd_objetivo}, Acumulado final: {round(acumulado_real, 2)}, Días simulados: {len(historial_cronologico)}")
+    
+    return acumulado_real
+
+# Inicializar la variable global ejecutando la simulación
+gdd_acumulado = inicializar_gdd_historico()
+gdd_acumulado_anterior = gdd_acumulado # Añadir después de inicializar el histórico
 ultimo_dpv = None  # Almacena el DPV más reciente para la demanda cruzada
 
 # Buffers de Suelo
@@ -121,16 +139,6 @@ def inicializar_csv():
                 writer = csv.writer(file)
                 writer.writerow(columnas)
 
-def obtener_ventana_minutos(dt: datetime, minutos: int) -> datetime:
-    minuto_redondeado = (dt.minute // minutos) * minutos
-    return dt.replace(minute=minuto_redondeado, second=0, microsecond=0)
-
-def obtener_ventana_seg(dt: datetime, segundos: int) -> datetime:
-    seg_dia = dt.hour * 3600 + dt.minute * 60 + dt.second
-    seg_dia -= seg_dia % segundos
-    return dt.replace(hour=seg_dia // 3600, minute=(seg_dia % 3600) // 60,
-                      second=seg_dia % 60, microsecond=0)
-
 def calcular_promedio(lista):
     return sum(lista) / len(lista) if lista else 0.0
 
@@ -144,12 +152,6 @@ def leer_historial_generico(archivo, fecha_hoy, columna_valor):
                 hora_corta = row["Hora"][:5]
                 datos_hoy[hora_corta] = float(row[columna_valor])
     return datos_hoy
-
-def clasificar_estado_luminosidad(valor: float) -> str:
-    if valor <= 20: return "Gris"
-    if valor <= 50: return "Azul"
-    if valor <= 85: return "Verde"
-    return "Rojo"
 
 def calcular_kpi_eficiencia_fotosintetica(valores) -> dict:
     conteo = {"Gris": 0, "Azul": 0, "Verde": 0, "Rojo": 0}
@@ -192,18 +194,6 @@ def despachar_historial_hoy(cliente, dt_actual):
     payload = {"fecha": fecha_hoy, "serie": datos, "kpi": kpi}
     cliente.publish(TOPICOS_SALIDA["lum_historial"], json.dumps(payload), qos=1)
 
-# ==========================================================
-# CÁLCULOS DEL SENSOR DE SUELO & TASA DE SECADO
-# ==========================================================
-def clasificar_suelo(h):
-    if h >= SATURACION:
-        return "Azul|Suelo saturado y sin oxígeno.|Peligro de pudrición; no regar."
-    if h >= CAPACIDAD_CAMPO:
-        return "Verde|Rango óptimo para raíces.|Capacidad de Campo."
-    if h >= PUNTO_MARCHITEZ:
-        return "Amarillo|El suelo se está secando.|Estrés Leve. Monitorear riego."
-    return "Rojo|Condición crítica.|Punto de Marchitez. Regar inmediatamente."
-
 def calcular_tasa_secado():
     if len(muestras_tasa) < MIN_PUNTOS_TASA:
         return None
@@ -219,40 +209,6 @@ def calcular_tasa_secado():
     if abs(pendiente * SPAN_TASA_SEG) < UMBRAL_CAMBIO_PTS:
         return 0.0
     return -pendiente * 3600.0  # Devuelve la tasa expresada en % por hora
-
-def estimar_tiempo_marchitez(prom, tasa):
-    if prom <= PUNTO_MARCHITEZ:
-        return "Ahora mismo", 0.0
-    if tasa is None:
-        return "Calculando...", None
-    if tasa <= 0:
-        return "No se está secando", None
-    horas = (prom - PUNTO_MARCHITEZ) / tasa
-    if horas > 48:
-        return "Más de 2 días", horas
-    if horas < 1:
-        return f"≈ {round(horas * 60)} min", horas
-    return f"≈ {horas:.1f} h", horas
-
-def evaluar_riesgo_cruzado(prom, horas, dpv):
-    demanda_alta = dpv is not None and dpv >= DPV_DEMANDA_ALTA
-    if prom <= PUNTO_MARCHITEZ:
-        return "Rojo", "Suelo en punto de marchitez. Regar de inmediato."
-    if horas is not None and horas <= ETA_CRITICA_H and demanda_alta:
-        return "Rojo", "Se seca rápido y el aire está muy seco (DPV alto). Regar ya."
-    if horas is not None and horas <= ETA_ALERTA_H:
-        return "Amarillo", "Tendencia de secado constante. Programar riego."
-    if demanda_alta and prom < CAPACIDAD_CAMPO:
-        return "Amarillo", "Suelo algo seco y demanda atmosférica elevada."
-    return None, None
-
-def estado_suelo_final(prom, horas, dpv):
-    color, diag, accion = clasificar_suelo(prom).split("|")
-    rangos = {"Verde": 0, "Amarillo": 1, "Rojo": 2}
-    r_color, r_msg = evaluar_riesgo_cruzado(prom, horas, dpv)
-    if r_color and color in rangos and rangos[r_color] >= rangos[color]:
-        color, diag, accion = r_color, "Riesgo por tendencia de secado y DPV.", r_msg
-    return f"{color}|{diag}|{accion}"
 
 def cerrar_ventana_suelo(cliente, ventana):
     global buffer_suelo
@@ -354,7 +310,7 @@ def on_connect(cliente, userdata, flags, reason_code, properties=None):
     cliente.subscribe(TOPICOS_ENTRADA)
 
 def on_message(cliente, userdata, message):
-    global buffers, ventana_actual, ventana_gdd_actual, buffer_lum_30m, ventana_30m_actual, ultimo_despacho_grafica
+    global buffers, ventana_actual, ventana_gdd_actual, buffer_lum_30m, ventana_30m_actual, ultimo_despacho_grafica, gdd_acumulado_anterior
     
     payload = message.payload.decode('utf-8')
     topico = message.topic
@@ -365,6 +321,7 @@ def on_message(cliente, userdata, message):
         ahora = datetime.now()
         despachar_historial_hoy(cliente, ahora)
         despachar_historial_suelo(cliente, ahora)
+        despachar_historial_gdd_diario(cliente)
         return
 
     # Lectura del payload (Fecha/Hora + Valor)
@@ -423,24 +380,50 @@ def on_message(cliente, userdata, message):
     if ventana_gdd_actual is None: ventana_gdd_actual = ventana_gdd_mensaje
 
     if ventana_mensaje > ventana_actual:
-        procesar_y_publicar_clima(cliente, ventana_actual, dt_mensaje)
+        procesar_y_publicar_clima(cliente, ventana_actual)
         ventana_actual = ventana_mensaje
         
+    # Bloque de GDD modificado dentro de on_message
     if ventana_gdd_mensaje > ventana_gdd_actual:
-        cliente.publish(TOPICOS_SALIDA["gdd"], str(round(gdd_acumulado, 4)), qos=1)
+        # Calcular cuánto GDD se generó en esta ventana específica
+        gdd_generado_ventana = max(0, gdd_acumulado - gdd_acumulado_anterior)
+        
+        # Guardar en histórico
+        fecha_str = ventana_gdd_actual.strftime("%Y-%m-%d")
+        with open(ARCHIVO_HISTORICO_GDD, mode='a', newline='') as file:
+            # Se guarda la fecha, el GDD de la ventana, y el acumulado total
+            csv.writer(file).writerow([fecha_str, round(gdd_generado_ventana, 4), round(gdd_acumulado, 2)])
+        
+        # Obtener etapa y preparar JSON
+        etapa_actual = obtener_etapa_fenologica(gdd_acumulado)
+        payload_gdd = {
+            "gdd_acumulado": round(gdd_acumulado, 2),
+            "etapa_crecimiento": etapa_actual
+        }
+        
+        cliente.publish(TOPICOS_SALIDA["gdd"], json.dumps(payload_gdd), qos=1, retain=True)
+        print(f"[EDGE] GDD publicado: {round(gdd_acumulado, 2)} | Etapa: {etapa_actual['nombre']}")
+        
+        # Prepararnos para la siguiente ventana
+        gdd_acumulado_anterior = gdd_acumulado
         ventana_gdd_actual = ventana_gdd_mensaje
 
     if topico in buffers:
         buffers[topico].append(valor)
 
-def procesar_y_publicar_clima(cliente, ventana, dt_actual):
+def procesar_y_publicar_clima(cliente, ventana):
     global buffers, gdd_acumulado, ultimo_dpv
+    print(f"\n--- CIERRE DE VENTANA CLIMA EDGE ({VENTANA_CLIMA_SEG} s): {ventana.strftime('%H:%M:%S')} ---")
+    
     prom_temp = calcular_promedio(buffers["campo1/parcelas/maiz1/temperatura/centigrados"])
     prom_hum_aire = calcular_promedio(buffers["campo1/parcelas/maiz1/humedad/aire"])
+    print(f"Temperatura promedio: {prom_temp}")
+    print(f"Humedad del aire promedio: {prom_hum_aire}")
     
     fecha_str = ventana.strftime("%Y-%m-%d")
     hora_str = ventana.strftime("%H:%M:%S")
 
+    # Guardar en CSV solo si hubo datos
     if buffers["campo1/parcelas/maiz1/temperatura/centigrados"]:
         with open(ARCHIVO_HISTORICO_TEMP, mode='a', newline='') as file:
             csv.writer(file).writerow([fecha_str, hora_str, round(prom_temp, 2)])
@@ -450,8 +433,10 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
             csv.writer(file).writerow([fecha_str, hora_str, round(prom_hum_aire, 2)])
     
     if prom_temp > 0 and prom_hum_aire > 0:
-        dpv = temperatura_metricas.calcular_dpv(prom_temp, prom_hum_aire)
-        dpd = temperatura_metricas.calcular_dpd(prom_temp, prom_hum_aire)
+        dpv = calcular_dpv(prom_temp, prom_hum_aire)
+        dpd = calcular_dpd(prom_temp, prom_hum_aire)
+        print(f"Depresión de vapor: {dpv}")
+        print(f"Déficit de punto de rocío: {dpd}")
         try:
             ultimo_dpv = float(dpv)
         except (TypeError, ValueError):
@@ -459,7 +444,7 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
     else:
         dpv = dpd = 0.0
 
-    gd = temperatura_metricas.calcular_gdh(prom_temp)
+    gd = calcular_gdh(prom_temp)
     gdd_acumulado += gd * VENTANA_CLIMA_SEG / 86400.0
 
     cliente.publish(TOPICOS_SALIDA["temp_prom"], str(round(prom_temp, 2)), qos=1)
@@ -470,7 +455,27 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
     for key in buffers:
         buffers[key].clear()
 
+def despachar_historial_gdd_diario(cliente):
+    if not os.path.exists(ARCHIVO_HISTORICO_GDD):
+        return
+        
+    historial_diario = {}
+    with open(ARCHIVO_HISTORICO_GDD, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            fecha = row["Fecha"]
+            # Al actualizar la clave repetidamente, nos quedamos con la última muestra del día
+            historial_diario[fecha] = float(row["GDD_Acumulado"])
+            
+    # Formatear la lista de objetos para el dashboard
+    serie_gdd = [{"fecha": f, "gdd_acumulado": v} for f, v in historial_diario.items()]
+    
+    # Publicar hacia el backend/dashboard
+    cliente.publish(TOPICOS_SALIDA["gdd_historial_diario"], json.dumps(serie_gdd), qos=1)
+    print(f"[REQUEST] Historial diario de GDD despachado ({len(serie_gdd)} días).")
+
 if __name__ == "__main__":
+    load_dotenv()
     inicializar_csv()
     client_kwargs = {"client_id": id_cliente}
     if hasattr(mqtt, "CallbackAPIVersion"):

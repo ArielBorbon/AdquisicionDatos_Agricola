@@ -1,4 +1,9 @@
-/edge/__pycache__
+__pycache__
 data/
 .vscode/
 node_modules/
+**/node_modules/
+.env
+*.env
+!.env.example
+edge/historico_gdd.csv
