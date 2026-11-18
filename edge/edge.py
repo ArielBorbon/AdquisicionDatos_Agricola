@@ -1,9 +1,11 @@
+from utils.path_csv import DATA_PATH, convertir_path
 import paho.mqtt.client as mqtt  # type: ignore
 import random
 from utils.metricas_clima import calcular_dpd, calcular_dpv, calcular_gdh, TEMP_BASE_MAIZ, TEMP_MEDIA_MENSUAL, gdd_random, obtener_etapa_fenologica
 from utils.metricas_luminosidad import clasificar_estado_luminosidad
 from utils.metricas_suelo import CAPACIDAD_CAMPO, MIN_PUNTOS_TASA, SALTO_RIEGO_PTS, SATURACION, UMBRAL_CAMBIO_PTS, estado_suelo_final, estimar_tiempo_marchitez, evaluar_riesgo_cruzado
 from utils.ventana import obtener_ventana_minutos, obtener_ventana_seg
+from utils.topicos import TOPICO_SUELO, TOPICO_REQUEST_HISTORIAL, TOPICOS_ENTRADA, TOPICOS_SALIDA
 from datetime import datetime, timedelta
 from collections import deque
 from dotenv import load_dotenv # type: ignore
@@ -38,36 +40,6 @@ else:
     VENTANA_HIST_SUELO_SEG = 30 * 60       # Fila en CSV de suelo (30 min)
     SPAN_TASA_SEG = 3600                   # Ventana de tendencia (1 hora)
 
-# Tópicos MQTT
-TOPICO_SUELO = "campo1/parcelas/parcela1/humedad/suelo"
-TOPICO_REQUEST_HISTORIAL = "campo1/dashboard/request/historial"
-
-TOPICOS_ENTRADA = [
-    ("campo1/parcelas/maiz1/temperatura/centigrados", 1),
-    ("campo1/parcelas/maiz1/humedad/aire", 1),
-    (TOPICO_SUELO, 1),
-    ("campo1/invernaderos/invernadero1/luminosidad", 1),
-    (TOPICO_REQUEST_HISTORIAL, 1)
-]
-
-TOPICOS_SALIDA = {
-    "temp_prom": "campo1/edge/parcelas/maiz1/temperatura/promedio",
-    "hum_aire_prom": "campo1/edge/parcelas/maiz1/humedad_aire/promedio",
-    "dpv": "campo1/edge/parcelas/maiz1/dpv",
-    "dpd": "campo1/edge/parcelas/maiz1/dpd",
-    "gdd": "campo1/edge/parcelas/maiz1/gdd",
-    "hum_suelo_prom": "campo1/edge/parcelas/parcela1/humedad_suelo/promedio",
-    "hum_suelo_estado": "campo1/edge/parcelas/parcela1/humedad_suelo/estado",
-    "tasa_secado": "campo1/edge/parcelas/parcela1/humedad_suelo/tasa_secado",
-    "demanda_cruzada": "campo1/edge/parcelas/parcela1/humedad_suelo/demanda_cruzada",
-    "tiempo_marchitez": "campo1/edge/parcelas/parcela1/humedad_suelo/tiempo_marchitez",
-    "hum_suelo_historial": "campo1/edge/parcelas/parcela1/humedad_suelo/historial",
-    "lum_prom": "campo1/edge/invernaderos/invernadero1/luminosidad/promedio",
-    "lum_estado": "campo1/edge/invernaderos/invernadero1/luminosidad/estado",
-    "lum_historial": "campo1/edge/invernaderos/invernadero1/luminosidad/historial",
-    "gdd_historial_diario": "campo1/edge/parcelas/maiz1/gdd/historial_diario"
-}
-
 # Buffers de datos
 buffers = {
     "campo1/parcelas/maiz1/temperatura/centigrados": [],
@@ -77,12 +49,11 @@ ventana_actual = None
 ventana_gdd_actual = None
 
 # Archivos de persistencia CSV
-DATA_PATH = "data/"
-ARCHIVO_HISTORICO = f"{DATA_PATH}historico_luminosidad.csv"
-ARCHIVO_HISTORICO_SUELO = f"{DATA_PATH}historico_humedad_suelo.csv"
-ARCHIVO_HISTORICO_TEMP = f"{DATA_PATH}historico_temperatura.csv"
-ARCHIVO_HISTORICO_HUM_AIRE = f"{DATA_PATH}historico_humedad_aire.csv"
-ARCHIVO_HISTORICO_GDD = f"{DATA_PATH}historico_gdd.csv"
+ARCHIVO_HISTORICO = convertir_path("historico_luminosidad")
+ARCHIVO_HISTORICO_SUELO = convertir_path("historico_humedad_suelo")
+ARCHIVO_HISTORICO_TEMP = convertir_path("historico_temperatura")
+ARCHIVO_HISTORICO_HUM_AIRE = convertir_path("historico_humedad_aire")
+ARCHIVO_HISTORICO_GDD = convertir_path("historico_gdd")
 
 # Buffers de Iluminación
 buffer_lum_30m = []
