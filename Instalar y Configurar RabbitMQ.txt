@@ -1,0 +1,63 @@
+Stop-Service -Name "mosquitto" -ErrorAction SilentlyContinue
+
+Set-Service -Name "mosquitto" -StartupType Disabled -ErrorAction SilentlyContinue
+
+winget install --id Erlang.ErlangOTP -e
+
+y (pide confirmacion con y)
+
+https://www.rabbitmq.com/docs/install-windows INSTALAR RABBIT de aqui (seccion Direct Downloads el.exe de windows)
+
+cd "C:\Program Files\RabbitMQ Server"
+
+cd "C:\Program Files\RabbitMQ Server\rabbitmq_server*\sbin"
+
+
+# 1. Buscar automáticamente dónde quedó instalado Erlang
+$erlangPath = (Get-ChildItem "C:\Program Files*\erl*" -Directory | Select-Object -First 1).FullName
+
+# 2. Guardar ERLANG_HOME permanentemente en Windows y cargarlo en esta sesión
+[System.Environment]::SetEnvironmentVariable("ERLANG_HOME", $erlangPath, "Machine")
+$env:ERLANG_HOME = $erlangPath
+
+# 3. Habilitar los 3 plugins y reiniciar el servicio
+.\rabbitmq-plugins.bat enable rabbitmq_mqtt rabbitmq_web_mqtt rabbitmq_management
+Restart-Service RabbitMQ
+
+
+netstat -ano | findstr "1883 15675" (REVISAR QUE ESTOS 2 ESTEN EN LISTENING)
+
+Copy-Item "C:\Windows\System32\config\systemprofile\.erlang.cookie" "$env:USERPROFILE\.erlang.cookie" -Force
+
+.\rabbitmqctl.bat add_user edge_node password_seguro_edge
+
+.\rabbitmqctl.bat set_permissions -p / edge_node ".*" ".*" ".*"
+
+.\rabbitmqctl.bat add_user usuario_dashboard password_seguro_dash
+
+.\rabbitmqctl.bat set_permissions -p / usuario_dashboard ".*" ".*" ".*"
+
+
+.\rabbitmqctl.bat add_user sensor_ldr_inv1 password_seguro_ldr
+
+.\rabbitmqctl.bat set_permissions -p / sensor_ldr_inv1 ".*" ".*" ".*"
+
+.\rabbitmqctl.bat add_user sensor_temp_maiz1 password_seguro_temp
+
+.\rabbitmqctl.bat set_permissions -p / sensor_temp_maiz1 ".*" ".*" ".*"
+
+.\rabbitmqctl.bat add_user sensor_humedad_parc1 password_seguro_humedad
+
+.\rabbitmqctl.bat set_permissions -p / sensor_humedad_parc1 ".*" ".*" ".*"
+
+New-NetFirewallRule -DisplayName "RabbitMQ MQTT 1883" -Direction Inbound -Protocol TCP -LocalPort 1883 -Action Allow
+
+New-NetFirewallRule -DisplayName "RabbitMQ Web-MQTT 15675" -Direction Inbound -Protocol TCP -LocalPort 15675 -Action Allow
+
+.\rabbitmqctl.bat set_permissions -p / edge_node ".*" ".*" ".*"
+.\rabbitmqctl.bat set_permissions -p / usuario_dashboard ".*" ".*" ".*"
+.\rabbitmqctl.bat set_permissions -p / sensor_ldr_inv1 ".*" ".*" ".*"
+.\rabbitmqctl.bat set_permissions -p / sensor_temp_maiz1 ".*" ".*" ".*"
+.\rabbitmqctl.bat set_permissions -p / sensor_humedad_parc1 ".*" ".*" ".*"
+
+.\rabbitmqctl.bat list_permissions -p /

@@ -2,7 +2,7 @@ import random
 import paho.mqtt.client as mqtt  # type: ignore
 from datetime import datetime
 from collections import deque
-import temperatura_metricas
+import edge.utils.metricas_clima as metricas_clima
 import json
 import csv
 import os
@@ -450,8 +450,8 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
             csv.writer(file).writerow([fecha_str, hora_str, round(prom_hum_aire, 2)])
     
     if prom_temp > 0 and prom_hum_aire > 0:
-        dpv = temperatura_metricas.calcular_dpv(prom_temp, prom_hum_aire)
-        dpd = temperatura_metricas.calcular_dpd(prom_temp, prom_hum_aire)
+        dpv = metricas_clima.calcular_dpv(prom_temp, prom_hum_aire)
+        dpd = metricas_clima.calcular_dpd(prom_temp, prom_hum_aire)
         try:
             ultimo_dpv = float(dpv)
         except (TypeError, ValueError):
@@ -459,7 +459,7 @@ def procesar_y_publicar_clima(cliente, ventana, dt_actual):
     else:
         dpv = dpd = 0.0
 
-    gd = temperatura_metricas.calcular_gdh(prom_temp)
+    gd = metricas_clima.calcular_gdh(prom_temp)
     gdd_acumulado += gd * VENTANA_CLIMA_SEG / 86400.0
 
     cliente.publish(TOPICOS_SALIDA["temp_prom"], str(round(prom_temp, 2)), qos=1)
